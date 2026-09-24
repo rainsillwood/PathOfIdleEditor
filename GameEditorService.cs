@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using BepInEx;
+using BepInEx.Logging;
 
 namespace PathOfIdleEditor;
 
@@ -204,7 +206,7 @@ internal static class GameEditorService
         lord.saveLordData.level = edit.Level;
         lord.saveLordData.exp = 0;
         lord.tLordLevelData = lordLevels[edit.Level];
-        lord.CreateOfflineResList();
+        //lord.CreateOfflineResList();
         foreach (var entry in validated)
         {
             var runtime = entry.Runtime;
@@ -670,7 +672,7 @@ internal static class GameEditorService
         var levelData = TEquipLevel.create()[edit.Level];
 
         // 创建未入包的预览装备，让游戏原生生成器决定该组合的默认词条和数量规则。
-        var preview = SaveItemData.CreateEquip(edit.TemplateId, edit.Quality, edit.Level)
+        var preview = SaveItemData.CreateEquip(edit.TemplateId, edit.Quality, edit.Level, 0f)
             ?? throw new InvalidOperationException("游戏原生装备生成器拒绝了当前组合。");
         // 神话生成会把基础装备 ID 切换到 upMyth 指向的专用模板；专属词条位于该模板，
         // 不能继续从下拉框中选中的基础模板读取。
@@ -853,7 +855,7 @@ internal static class GameEditorService
             throw new InvalidOperationException($"当前品级最多允许 {rules.MaximumAffixCount} 条词条。");
 
         // 先创建保存数据，以实际生成后的模板 ID 读取神话专属词条。
-        var saveItem = SaveItemData.CreateEquip(edit.TemplateId, edit.Quality, edit.Level)
+        var saveItem = SaveItemData.CreateEquip(edit.TemplateId, edit.Quality, edit.Level, 0f)
             ?? throw new InvalidOperationException("游戏原生装备生成器创建失败。");
         var effectiveTemplate = ResolveGeneratedEquipmentTemplate(saveItem, template);
         var poolByKey = BuildAffixPoolMap(effectiveTemplate, edit.Level, rules.AffixQualityLimits.Keys);
@@ -1118,7 +1120,7 @@ internal static class GameEditorService
             Dexterity = ReadAttribute(save, EAttrType.DEX),
             Intelligence = ReadAttribute(save, EAttrType.INT),
             RemainingSkillPoints = save.talentRemainPoint,
-            MaximumAlienSkills = Math.Max(0, save.GetAlienSkillCount()),
+            MaximumAlienSkills = Math.Max(0, save.GetNeededAlienSkillCount()),
             MaximumInspiredTalents = GetMaximumInspiredTalents(),
             TalentSlots = BuildTalentSlots(hero)
         };
@@ -1477,19 +1479,60 @@ internal static class GameEditorService
         var result = new List<AffixValueRange>();
         // specialRandom 使用独立随机算法，当前游戏没有暴露端点；不能伪造范围并限制输入。
         if (affix.specialType == 1 || rate <= 0)
+        {
+            Plugin.Log.LogInfo($"[Range] skip id={affix.id} specialType={affix.specialType} rate={rate}");
             return result;
+        }
         var qualityTable = TAffixQuality.create();
         if (!qualityTable.ContainsKey(quality))
+        {
+            Plugin.Log.LogInfo($"[Range] quality {quality} not found. Keys: {string.Join(",", qualityTable.Keys)}");
             return result;
+        }
         var qualityRule = qualityTable[quality];
-        if (qualityRule == null || qualityRule.minRate <= 0 || qualityRule.maxRate < qualityRule.minRate)
+        if (qualityRule == null /*|| qualityRule.valueRate <= 0 || qualityRule.maxRate < qualityRule.minRate*/)
+        {
+            Plugin.Log.LogInfo($"[Range] qualityRule invalid. valueRate={qualityRule?.valueRate}");
             return result;
+        }
+        // 获取词缀基础数据，用于计算 baseValue
+        var tAffix = TableData.getTAffixData(affix.id);
+        if (tAffix == null)
+        {
+            Plugin.Log.LogInfo($"[Range] tAffix null for affix.id={affix.id}");
+            return result;
+        }
 
+        var levelRate = tAffix.levelRate; // Il2CppArray<float> 或 float[]
+        if (levelRate == null || levelRate.Length < 3)
+        {
+            Plugin.Log.LogInfo($"[Range] levelRate invalid. null={levelRate == null} len={levelRate?.Length}");
+            return result;
+        }
         for (var level = 1; level <= maximumLevel; level++)
         {
             try
             {
-                // 原生 min 路径给出下端点；按档位 maxRate/minRate 缩放池倍率后再次走同一路径，
+                // 1. 计算 baseValue（即 CalcBodyAttrValueRange 的 standard 参数）
+                float baseValue = level * level * levelRate[0]
+                                + level * levelRate[1]
+                                + levelRate[2];
+                // 2. 调用新版范围计算方法
+                SaveAffixData.CalcBodyAttrValueRange(baseValue, qualityRule, out float min, out float max);
+                // 3. 应用额外的 rate
+                min *= rate;
+                max *= rate;
+                // 4. 取整（与游戏内部一致）
+                int minValue = (int)min;
+                int maxValue = (int)max;
+
+                result.Add(new AffixValueRange
+                {
+                    Level = level,
+                    Minimum = Math.Min(minValue, maxValue),
+                    Maximum = Math.Max(minValue, maxValue)
+                });
+                /*/ 原生 min 路径给出下端点；按档位 maxRate/minRate 缩放池倍率后再次走同一路径，
                 // 可保留游戏自身的 levelRate、取整和符号规则，同时得到对应上端点。
                 var minimumData = SaveAffixData.Create(affix.id, quality, level, rate, EAffixValueType.min);
                 var maximumData = SaveAffixData.Create(affix.id, quality, level,
@@ -1501,7 +1544,7 @@ internal static class GameEditorService
                     Level = level,
                     Minimum = Math.Min(minimumData.value, maximumData.value),
                     Maximum = Math.Max(minimumData.value, maximumData.value)
-                });
+                });*/
             }
             catch
             {
