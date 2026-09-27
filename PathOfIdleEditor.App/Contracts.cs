@@ -3,10 +3,29 @@ using System.Runtime.CompilerServices;
 
 namespace PathOfIdleEditor.App;
 
+// ============================================================
+// 【协议文件】桌面端与桥接 Mod 之间的命名管道协议定义。
+//
+// 服务端 PathOfIdleEditor.Contracts 里有一份几乎相同的类型定义，
+// 两边必须逐字段对齐（名称、类型、可空性）。
+//
+// - 新增/删除/重命名字段 → 必须同步修改两侧。
+// - JsonSerializer 会静默忽略缺失/多余的字段，字段不对齐时不会报错，
+//   而是静默表现为「读不到数据 / 写不进去」。
+// - 修改本文件后，请同步提升 BridgeProtocol.Version。
+// ============================================================
+internal static class BridgeProtocol
+{
+    // 协议版本号：两端不一致时客户端会主动拒绝响应。
+    // 任何字段增删/重命名/类型变化都必须 +1。
+    internal const int Version = 1;
+}
+
 public sealed class EditorRequest
 {
     public string Action { get; set; } = "";
     public EquipmentEdit? Equipment { get; set; }
+    public EquipmentReplaceEdit? EquipmentReplace { get; set; }
     public HeroEdit? Hero { get; set; }
     public InventoryItemEdit? InventoryItem { get; set; }
     public InventoryAddEdit? InventoryAdd { get; set; }
@@ -15,10 +34,12 @@ public sealed class EditorRequest
 
 public sealed class EditorResponse
 {
+    public int ProtocolVersion { get; set; } = BridgeProtocol.Version;
     public bool Success { get; set; }
     public string Message { get; set; } = "";
     public EditorSnapshot? Snapshot { get; set; }
     public EquipmentRules? EquipmentRules { get; set; }
+    public EquipmentInventorySnapshot? EquipmentInventory { get; set; }
     public InventorySnapshot? Inventory { get; set; }
     public LordEdit? Lord { get; set; }
 }
@@ -51,28 +72,118 @@ public sealed class LordJobLevelRule
     public int MaximumTalentBonusLevel { get; set; }
 }
 
-public sealed class LordJobEdit
+public sealed class LordJobEdit : INotifyPropertyChanged
 {
+    private int _level;
+    private int _requiredLordLevel;
+    private int _totalAttributePoints;
+    private int _strength;
+    private int _strengthMinimum;
+    private int _strengthMaximum;
+    private int _dexterity;
+    private int _dexterityMinimum;
+    private int _dexterityMaximum;
+    private int _intelligence;
+    private int _intelligenceMinimum;
+    private int _intelligenceMaximum;
+
     public int JobId { get; set; }
     public string JobName { get; set; } = "";
-    public int Level { get; set; }
+
+    public int Level
+    {
+        get => _level;
+        set => SetField(ref _level, value);
+    }
+
     public int MaximumLevel { get; set; }
-    public int RequiredLordLevel { get; set; }
-    public int TotalAttributePoints { get; set; }
-    public int Strength { get; set; }
-    public int StrengthMinimum { get; set; }
-    public int StrengthMaximum { get; set; }
-    public int Dexterity { get; set; }
-    public int DexterityMinimum { get; set; }
-    public int DexterityMaximum { get; set; }
-    public int Intelligence { get; set; }
-    public int IntelligenceMinimum { get; set; }
-    public int IntelligenceMaximum { get; set; }
+
+    public int RequiredLordLevel
+    {
+        get => _requiredLordLevel;
+        set => SetField(ref _requiredLordLevel, value);
+    }
+
+    public int TotalAttributePoints
+    {
+        get => _totalAttributePoints;
+        set => SetField(ref _totalAttributePoints, value);
+    }
+
+    public int Strength
+    {
+        get => _strength;
+        set => SetField(ref _strength, value);
+    }
+
+    public int StrengthMinimum
+    {
+        get => _strengthMinimum;
+        set { if (SetField(ref _strengthMinimum, value)) OnPropertyChanged(nameof(StrengthRange)); }
+    }
+
+    public int StrengthMaximum
+    {
+        get => _strengthMaximum;
+        set { if (SetField(ref _strengthMaximum, value)) OnPropertyChanged(nameof(StrengthRange)); }
+    }
+
+    public int Dexterity
+    {
+        get => _dexterity;
+        set => SetField(ref _dexterity, value);
+    }
+
+    public int DexterityMinimum
+    {
+        get => _dexterityMinimum;
+        set { if (SetField(ref _dexterityMinimum, value)) OnPropertyChanged(nameof(DexterityRange)); }
+    }
+
+    public int DexterityMaximum
+    {
+        get => _dexterityMaximum;
+        set { if (SetField(ref _dexterityMaximum, value)) OnPropertyChanged(nameof(DexterityRange)); }
+    }
+
+    public int Intelligence
+    {
+        get => _intelligence;
+        set => SetField(ref _intelligence, value);
+    }
+
+    public int IntelligenceMinimum
+    {
+        get => _intelligenceMinimum;
+        set { if (SetField(ref _intelligenceMinimum, value)) OnPropertyChanged(nameof(IntelligenceRange)); }
+    }
+
+    public int IntelligenceMaximum
+    {
+        get => _intelligenceMaximum;
+        set { if (SetField(ref _intelligenceMaximum, value)) OnPropertyChanged(nameof(IntelligenceRange)); }
+    }
+
     public List<LordJobAttributeRule> AttributeRules { get; set; } = new();
     public List<LordTalentBonusEdit> TalentBonuses { get; set; } = new();
+
     public string StrengthRange => $"{StrengthMinimum}-{StrengthMaximum}";
     public string DexterityRange => $"{DexterityMinimum}-{DexterityMaximum}";
     public string IntelligenceRange => $"{IntelligenceMinimum}-{IntelligenceMaximum}";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return false;
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
 public sealed class LordJobAttributeRule
@@ -87,13 +198,37 @@ public sealed class LordJobAttributeRule
     public int IntelligenceMaximum { get; set; }
 }
 
-public sealed class LordTalentBonusEdit
+public sealed class LordTalentBonusEdit : INotifyPropertyChanged
 {
+    private int _level;
+    private int _maximumLevel;
+
     public int TalentId { get; set; }
     public string Kind { get; set; } = "";
     public string Name { get; set; } = "";
-    public int Level { get; set; }
-    public int MaximumLevel { get; set; }
+
+    public int Level
+    {
+        get => _level;
+        set => SetField(ref _level, value);
+    }
+
+    public int MaximumLevel
+    {
+        get => _maximumLevel;
+        set => SetField(ref _maximumLevel, value);
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return false;
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        return true;
+    }
 }
 
 public sealed class InventorySnapshot
@@ -137,6 +272,32 @@ public sealed class InventoryAddEdit
     public int Quality { get; set; }
     public int Level { get; set; }
     public int Count { get; set; }
+}
+
+public sealed class EquipmentInventoryEntry
+{
+    public string Guid { get; set; } = "";
+    public int FieldIndex { get; set; }
+    public int TemplateId { get; set; }
+    public string Name { get; set; } = "";
+    public int Quality { get; set; }
+    public string QualityName { get; set; } = "";
+    public int Level { get; set; }
+    public int ForgeLevel { get; set; }
+    public List<AffixEdit> Affixes { get; set; } = new();
+    public string Display =>
+        $"[{FieldIndex}] {Name} · {QualityName} · 等级 {Level} · 锻造 +{ForgeLevel} · {Affixes.Count} 条词条";
+}
+
+public sealed class EquipmentInventorySnapshot
+{
+    public List<EquipmentInventoryEntry> Entries { get; set; } = new();
+}
+
+public sealed class EquipmentReplaceEdit
+{
+    public string Guid { get; set; } = "";
+    public EquipmentEdit Equipment { get; set; } = new();
 }
 
 public sealed class RuleOption
@@ -219,7 +380,17 @@ public sealed class AffixEdit : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Value)));
         }
     }
-    public List<AffixValueRange> ValueRanges { get; set; } = new();
+    private List<AffixValueRange> _valueRanges = new();
+    public List<AffixValueRange> ValueRanges
+    {
+        get => _valueRanges;
+        set
+        {
+            _valueRanges = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ValueRanges)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ValueRange)));
+        }
+    }
     public string ValueRange
     {
         get

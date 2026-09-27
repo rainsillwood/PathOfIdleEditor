@@ -665,6 +665,37 @@ internal static class GameEditorService
         EItemType.curio => "奇物",
         _ => $"类型 {(int)type}"
     };
+    /*
+    private static void DumpFields(string tag, Il2CppSystem.Object obj)
+    {
+        if (obj == null) { Plugin.Log.LogInfo($"[{tag}] null"); return; }
+        var type = obj.GetType();
+        Plugin.Log.LogInfo($"[{tag}] type={type.FullName}");
+        var flags = System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic;
+        var fields = type.GetFields(flags);
+        Plugin.Log.LogInfo($"[{tag}] fieldCount={fields.Length}");
+        foreach (var f in fields)
+        {
+            string value;
+            try { value = f.GetValue(obj)?.ToString() ?? "null"; }
+            catch (Exception ex) { value = $"<err: {ex.GetType().Name}>"; }
+            Plugin.Log.LogInfo($"[{tag}] {f.Name} ({f.FieldType.Name}) = {value}");
+        }
+    }
+    */
+    private static readonly Dictionary<string, EquipmentLocator> EquipmentLocators = new();
+
+    private sealed class EquipmentLocator
+    {
+        internal int FieldIndex;
+        internal int TemplateId;
+        internal int Quality;
+        internal int Level;
+        internal int ForgeLevel;
+        internal string Fingerprint = "";
+    }
 
     internal static EquipmentRules GetEquipmentRules(EquipmentEdit edit)
     {
@@ -844,9 +875,198 @@ internal static class GameEditorService
         return rules;
     }
 
+    internal static EquipmentInventorySnapshot GetEquipmentInventorySnapshot() => GetEquipmentInventorySnapshot(GetLord());
+
+    private static string BuildEquipmentFingerprint(SaveItemData save)
+    {
+        // 用内容而不是槽位来识别装备：玩家在游戏内整理过背包后槽位会变，但内容不变。
+        var parts = new List<string>
+            {
+                save.id.ToString(),
+                save.quality.ToString(),
+                save.level.ToString(),
+                save.forgeLevel.ToString()
+            };
+        if (save.affixList != null)
+        {
+            parts.Add(save.affixList.Count.ToString());
+            for (var i = 0; i < save.affixList.Count; i++)
+            {
+                var affix = save.affixList[i];
+                parts.Add(affix == null ? "null" : $"{affix.id}:{affix.quality}:{affix.level}:{affix.value}");
+            }
+        }
+        return string.Join("|", parts);
+    }
+
+    private static EquipmentInventorySnapshot GetEquipmentInventorySnapshot(LordData lord)
+    {
+        var result = new EquipmentInventorySnapshot();
+        EquipmentLocators.Clear();
+        var fields = lord.lordBagData.GetFieldList(EItemType.equip);
+        var templateTable = TEquip.create();
+        var qualityTable = TEquipQuality.create();
+        var affixTable = TAffix.create();
+        var affixQualityTable = TAffixQuality.create();
+
+        for (var i = 0; fields != null && i < fields.Count; i++)
+        {
+            var field = fields[i];
+            var itemData = field?.itemData;
+            var fieldSave = field?.saveItemFieldData;
+            var save = itemData?.saveItemData;
+            if (itemData == null || fieldSave == null || save == null ||
+                save.type != EItemType.equip || save.count <= 0)
+                continue;
+
+            var guid = System.Guid.NewGuid().ToString("N");
+            EquipmentLocators[guid] = new EquipmentLocator
+            {
+                FieldIndex = fieldSave.index,
+                TemplateId = save.id,
+                Quality = save.quality,
+                Level = save.level,
+                ForgeLevel = save.forgeLevel,
+                Fingerprint = BuildEquipmentFingerprint(save)
+            };
+
+            var entry = new EquipmentInventoryEntry
+            {
+                Guid = guid,
+                FieldIndex = fieldSave.index,
+                TemplateId = save.id,
+                Name = itemData.GetName()
+                    ?? (templateTable.ContainsKey(save.id) ? templateTable[save.id].name : $"装备 {save.id}"),
+                Quality = save.quality,
+                QualityName = qualityTable.ContainsKey(save.quality)
+                    ? qualityTable[save.quality].name
+                    : $"品级 {save.quality}",
+                Level = save.level,
+                ForgeLevel = save.forgeLevel
+            };
+
+            if (save.affixList != null)
+            {
+                for (var j = 0; j < save.affixList.Count; j++)
+                {
+                    var affix = save.affixList[j];
+                    if (affix == null)
+                        continue;
+                    entry.Affixes.Add(new AffixEdit
+                    {
+                        Id = affix.id,
+                        Quality = affix.quality,
+                        QualityName = affixQualityTable.ContainsKey(affix.quality)
+                            ? affixQualityTable[affix.quality].name
+                            : $"词条档位 {affix.quality}",
+                        Name = affixTable.ContainsKey(affix.id)
+                            ? GetAffixName(affixTable[affix.id])
+                            : $"词条 {affix.id}",
+                        Level = affix.level,
+                        // 用户看到的是游戏实时计算后的值；填写新值时由 Harmony 哨兵路径覆盖。
+                        Value = affix.value
+                    });
+                }
+            }
+
+            result.Entries.Add(entry);
+
+        }
+
+        result.Entries.Sort((a, b) =>
+        {
+            var idCompare = a.TemplateId.CompareTo(b.TemplateId);
+            return idCompare != 0 ? idCompare : a.FieldIndex.CompareTo(b.FieldIndex);
+        });
+        return result;
+    }
+
+    internal static EditorResponse ReplaceEquipment(EquipmentReplaceEdit edit)
+    {
+        if (string.IsNullOrWhiteSpace(edit.Guid))
+            throw new InvalidOperationException("缺少装备定位标识，请刷新装备列表后重试。");
+        if (!EquipmentLocators.TryGetValue(edit.Guid, out var locator))
+            throw new InvalidOperationException("该装备的定位标识已失效（装备列表可能已被刷新），请重新刷新后重试。");
+
+        var lord = GetLord();
+        var request = edit.Equipment ?? throw new InvalidOperationException("缺少装备数据。");
+
+        // 定位旧装备：FieldIndex 是稀疏槽位号，不是列表位置，必须循环匹配。
+        var fields = lord.lordBagData.GetFieldList(EItemType.equip);
+        ItemFieldData? target = null;
+        for (var i = 0; fields != null && i < fields.Count; i++)
+        {
+            var field = fields[i];
+            if (field?.saveItemFieldData?.index == locator.FieldIndex &&
+                field.itemData?.saveItemData != null &&
+                BuildEquipmentFingerprint(field.itemData.saveItemData) == locator.Fingerprint)
+            {
+                target = field;
+                break;
+            }
+        }
+        // 第二优先：槽位失效时按内容指纹全背包唯一匹配，避免玩家整理背包后无法应用。
+        if (target == null && fields != null)
+        {
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var field = fields[i];
+                if (field?.itemData?.saveItemData == null)
+                    continue;
+                if (BuildEquipmentFingerprint(field.itemData.saveItemData) != locator.Fingerprint)
+                    continue;
+                if (target != null)
+                    throw new InvalidOperationException("背包中存在多件完全相同的装备，无法唯一定位，请刷新装备列表后重试。");
+                target = field;
+            }
+        }
+
+        if (target?.itemData?.saveItemData == null)
+            throw new InvalidOperationException("原装备已经发生变化，请刷新装备列表后重试。");
+
+        // 第一步：在内存里构造好新装备。构造失败时旧装备原封不动，不需要任何回滚。
+        var (newItem, message) = BuildEquipment(request);
+
+        // 第二步：把旧装备从背包里移除，再把新装备放进去。
+        // 新装备已经构造完成，addItemToBag 只可能因背包状态异常失败；
+        // 真失败时把旧装备放回去，保证存档不丢件。
+        var oldItemData = target.itemData;
+        var oldCount = oldItemData.saveItemData.count;
+        lord.lordBagData.ReduceItem(target, oldCount);
+        if (!lord.lordBagData.addItemToBag(newItem))
+        {
+            if (!lord.lordBagData.addItemToBag(oldItemData))
+                throw new InvalidOperationException("背包状态异常：新装备未加入，且旧装备无法放回，请手动检查背包。");
+            throw new InvalidOperationException("领主背包已满，无法替换装备；原装备已放回背包。");
+        }
+        // 本次编辑使用的 GUID 已随旧装备消失，立刻失效以免复用。
+        EquipmentLocators.Remove(edit.Guid);
+
+        SaveNow();
+        return new EditorResponse
+        {
+            Success = true,
+            Message = $"{message}（已移除原装备并重新生成）",
+            Inventory = GetInventorySnapshot(lord),
+            EquipmentInventory = GetEquipmentInventorySnapshot(lord)
+        };
+    }
+
     internal static string GenerateEquipment(EquipmentEdit edit)
     {
         var lord = GetLord();
+        // 先在内存里构造新装备；构造失败时不会动背包。
+        var (item, message) = BuildEquipment(edit);
+        if (!lord.lordBagData.addItemToBag(item))
+            throw new InvalidOperationException("领主背包已满，装备没有加入存档。");
+        SaveNow();
+        return message;
+    }
+
+    private static (ItemData Item, string Message) BuildEquipment(EquipmentEdit edit)
+    {
+        // 在内存里构造一件完整的运行时装备，不做入包。
+        // 由调用方决定什么时候把返回的 ItemData 放进背包，并统一负责回滚。
         var template = RequireEquipmentRequest(edit);
         var rules = GetEquipmentRules(edit);
         if (!rules.AllowedForgeLevels.Contains(edit.ForgeLevel))
@@ -910,17 +1130,21 @@ internal static class GameEditorService
             // 游戏原生创建路径没有针对外部 value 的范围校验。表中推导出的范围仅供界面参考，
             // 用户填写任意整数时都直接覆盖随机结果；留空则保留游戏生成的值。
             if (requested.Value.HasValue)
+            {
                 saveAffix.value = requested.Value.Value;
+                // 双字段哨兵：talentLevel=1 + abilityId=int.MinValue。
+                // 只有两者同时匹配，SaveAffixValuePatch 才直接返回存档值；
+                // 单独依赖 talentLevel 会与未来的游戏更新产生碰撞风险。
+                saveAffix.talentLevel = 1;
+                saveAffix.abilityId = SaveAffixValuePatch.ManualValueAbilityIdSentinel;
+            }
             saveItem.affixList.Add(saveAffix);
         }
 
         // 第三个参数是 needCount，普通背包实例必须为 0，否则图标会显示“数量/1”。
         var item = ItemData.Create(saveItem, EItemPosType.bag, 0)
-            ?? throw new InvalidOperationException("游戏创建运行时装备数据失败。");
-        if (!lord.lordBagData.addItemToBag(item))
-            throw new InvalidOperationException("领主背包已满，装备没有加入存档。");
-        SaveNow();
-        return $"已生成“{template.name}”：品级 {edit.Quality}，等级 {edit.Level}，锻造 +{edit.ForgeLevel}，{edit.Affixes.Count} 条词条。";
+        ?? throw new InvalidOperationException("游戏创建运行时装备数据失败。");
+        return (item, $"已生成“{template.name}”：品级 {edit.Quality}，等级 {edit.Level}，锻造 +{edit.ForgeLevel}，{edit.Affixes.Count} 条词条。");
     }
 
     internal static string UpdateHero(HeroEdit edit)
@@ -1350,19 +1574,15 @@ internal static class GameEditorService
 
     private static TEquip RequireEquipmentRequest(EquipmentEdit edit)
     {
-        // 所有基础 ID 先通过当前游戏表验证，再调用原生 API，避免无效 ID 触发 IL2CPP 异常。
+        // 只校验模板、品级、等级三项存在于当前游戏表中；不校验品级是否在随机产出枚举里，
+        // 因为游戏存在通过随机流程以外的渠道获得的装备（例如“套装”品级），
+        // 它们不在 GetAllowedQualities 的结果中，但仍然是合法品级。
         var templates = TEquip.create();
         if (!templates.ContainsKey(edit.TemplateId))
             throw new InvalidOperationException($"装备模板 {edit.TemplateId} 不存在于当前游戏表中。");
         var template = templates[edit.TemplateId];
-        var qualityTable = TEquipQuality.create();
-        if (!qualityTable.ContainsKey(edit.Quality))
+        if (!TEquipQuality.create().ContainsKey(edit.Quality))
             throw new InvalidOperationException($"品级 {edit.Quality} 不存在于当前游戏表中。");
-        var qualityOptions = new List<RuleOption>();
-        foreach (var pair in qualityTable)
-            qualityOptions.Add(new RuleOption { Value = pair.Key, Name = pair.Value.name });
-        if (!GetAllowedQualities(template, qualityOptions).Contains(edit.Quality))
-            throw new InvalidOperationException($"“{template.name}”不支持品级“{qualityTable[edit.Quality].name}”。");
         if (!TEquipLevel.create().ContainsKey(edit.Level))
             throw new InvalidOperationException($"装备等级 {edit.Level} 不存在于当前游戏规则表中。");
         return template;

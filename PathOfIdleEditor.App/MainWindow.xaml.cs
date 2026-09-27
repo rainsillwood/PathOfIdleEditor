@@ -17,6 +17,9 @@ public partial class MainWindow : Window
     private EditorSnapshot? _snapshot;
     private EquipmentRules? _equipmentRules;
     private ICollectionView? _equipmentView;
+    private bool _equipmentEditMode;          // false=生成器，true=编辑器
+    private ICollectionView? _equipmentInventoryView;
+    private EquipmentInventoryEntry? _currentEditEntry;
     private ICollectionView? _inventoryTemplateView;
     private ICollectionView? _inventoryView;
     private readonly Dictionary<int, List<SkillOption>> _talentSkillOptionCatalogs = new();
@@ -44,18 +47,23 @@ public partial class MainWindow : Window
 
             _loadingControls = true;
             _equipmentView = CollectionViewSource.GetDefaultView(_snapshot.EquipmentTemplates);
-            EquipmentTemplateCombo.ItemsSource = _equipmentView;
+            // 只在生成器模式绑定模板列表；编辑器模式由 RefreshEquipmentListButton 自己维护背包视图。
+            if (!_equipmentEditMode)
+            {
+                EquipmentTemplateCombo.ItemsSource = _equipmentView;
+                EquipmentTemplateCombo.SelectedIndex = _snapshot.EquipmentTemplates.Count > 0 ? 0 : -1;
+            }
             EquipmentLevelCombo.ItemsSource = _snapshot.EquipmentLevels;
             BlessingLevelCombo.ItemsSource = _snapshot.BlessingLevels;
             HeroQualityCombo.ItemsSource = _snapshot.HeroQualities;
             HeroCombo.ItemsSource = _snapshot.Heroes;
             BindInventory(_snapshot.Inventory);
             BindLord(_snapshot.Lord);
-            EquipmentTemplateCombo.SelectedIndex = _snapshot.EquipmentTemplates.Count > 0 ? 0 : -1;
             EquipmentLevelCombo.SelectedIndex = _snapshot.EquipmentLevels.Count > 0 ? 0 : -1;
             HeroCombo.SelectedIndex = _snapshot.Heroes.Count > 0 ? 0 : -1;
             RefreshQualityOptions();
             _loadingControls = false;
+            await ReloadEquipmentInventoryAsync(applySelection: true);
             await LoadEquipmentRulesAsync();
             return $"已读取当前游戏：{_snapshot.EquipmentTemplates.Count} 个装备模板，{_snapshot.Inventory.BagItems.Count} 组背包物品，{_snapshot.Heroes.Count} 名角色。";
         });
@@ -125,6 +133,17 @@ public partial class MainWindow : Window
         LordTalentRuleText.Text = $"{job.JobName}：魔偶 {job.Level} 级要求崇拜者至少 {job.RequiredLordLevel} 级；" +
             $"力量总加成 {job.StrengthMinimum}-{job.StrengthMaximum}，敏捷总加成 {job.DexterityMinimum}-{job.DexterityMaximum}，" +
             $"智力总加成 {job.IntelligenceMinimum}-{job.IntelligenceMaximum}，三项累计总和必须为 {job.TotalAttributePoints}。";
+    }
+
+    private void LordJobsGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+    {
+        if (e.EditAction != DataGridEditAction.Commit)
+            return;
+        if (e.Row.Item is not LordJobEdit job)
+            return;
+
+        // CellEditEnding 时绑定尚未写回数据源；用 Dispatcher 排到下一帧后再重算派生列。
+        Dispatcher.BeginInvoke(() => SyncLordJobRule(job), DispatcherPriority.Background);
     }
 
     private void SyncLordJobRule(LordJobEdit job)
@@ -277,21 +296,147 @@ public partial class MainWindow : Window
         });
     }
 
+    private void EquipmentModeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source != EquipmentModeTabs) return;
+        var editMode = EquipmentModeTabs.SelectedIndex == 1;
+        if (_equipmentEditMode == editMode) return;
+        _equipmentEditMode = editMode;
+
+        _loadingControls = true;
+        try
+        {
+            EquipmentTemplateCombo.SelectedItem = null;
+            _currentEditEntry = null;
+            _affixes.Clear();
+            if (editMode)
+            {
+                EquipmentTemplateLabel.Content = "背包中的装备";
+                EquipmentActionButton.Content = "应用修改（移除原装备并重新生成）";
+                RefreshEquipmentListButton.Visibility = Visibility.Visible;
+                EquipmentTemplateCombo.ItemsSource = _equipmentInventoryView;
+            }
+            else
+            {
+                EquipmentTemplateLabel.Content = "装备模板";
+                EquipmentActionButton.Content = "生成装备并加入背包";
+                RefreshEquipmentListButton.Visibility = Visibility.Collapsed;
+                EquipmentTemplateCombo.ItemsSource = _equipmentView;
+            }
+            if (EquipmentTemplateCombo.ItemsSource is ICollectionView view && !view.IsEmpty)
+                EquipmentTemplateCombo.SelectedIndex = 0;
+        }
+        finally { _loadingControls = false; }
+
+        if (editMode && EquipmentTemplateCombo.SelectedItem is EquipmentInventoryEntry entry)
+            _ = ApplyEditorEntrySelectionAsync(entry);
+        else
+            _ = LoadEquipmentRulesAsync();
+    }
+
+    private async Task ApplyEquipmentInventoryAsync(EquipmentInventorySnapshot inventory, bool applySelection)
+    {
+        // 无论哪种模式，先把最新数据缓存下来；切到编辑器 tab 时可直接使用。
+        _equipmentInventoryView = CollectionViewSource.GetDefaultView(inventory.Entries);
+
+        // 静默刷新：只更新缓存，不动当前 UI。生成器模式下生成完装备走这里。
+        if (!applySelection)
+            return;
+
+        // 恢复选中：GUID 每次刷新都会变，用内容字段匹配上一次的选中项。
+        var previousEntry = _currentEditEntry;
+        EquipmentInventoryEntry? restored = null;
+        if (previousEntry != null)
+        {
+            restored = inventory.Entries.FirstOrDefault(item =>
+                item.TemplateId == previousEntry.TemplateId &&
+                item.Quality == previousEntry.Quality &&
+                item.Level == previousEntry.Level &&
+                item.ForgeLevel == previousEntry.ForgeLevel &&
+                item.Affixes.Count == previousEntry.Affixes.Count);
+        }
+
+        _loadingControls = true;
+        try
+        {
+            EquipmentTemplateCombo.ItemsSource = _equipmentInventoryView;
+            if (restored != null)
+                EquipmentTemplateCombo.SelectedItem = restored;
+            else
+                EquipmentTemplateCombo.SelectedIndex = inventory.Entries.Count > 0 ? 0 : -1;
+        }
+        finally { _loadingControls = false; }
+
+        // 刷新期间 SelectionChanged 被 _loadingControls 吞掉，这里显式驱动一次。
+        if (EquipmentTemplateCombo.SelectedItem is EquipmentInventoryEntry entry)
+            await ApplyEditorEntrySelectionAsync(entry);
+        else
+            await LoadEquipmentRulesAsync();
+    }
+
+    private async Task ReloadEquipmentInventoryAsync(bool applySelection)
+    {
+        // 拉取 + 绑定。
+        var response = await BridgeClient.SendAsync(new EditorRequest { Action = "equipmentInventory" });
+        EnsureSuccess(response);
+        await ApplyEquipmentInventoryAsync(
+            response.EquipmentInventory ?? throw new InvalidDataException("桥接没有返回装备背包。"),
+            applySelection);
+    }
+
+    private async void RefreshEquipmentListButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunAsync(async () =>
+        {
+            await ReloadEquipmentInventoryAsync(applySelection: true);
+            var count = _equipmentInventoryView?.Cast<object>().Count() ?? 0;
+            return count == 0 ? "背包里没有可编辑的装备。" : $"已读取 {count} 件背包装备。";
+        });
+    }
+
+    private async Task ApplyEditorEntrySelectionAsync(EquipmentInventoryEntry entry)
+    {
+        // 编辑器模式下，把一个装备条目的全部信息填到控件里，并刷新规则。
+        // RefreshEquipmentListButton_Click 也会显式调用，因为刷新期间的 SelectionChanged 被 _loadingControls 吞掉了。
+        _loadingControls = true;
+        try
+        {
+            RefreshQualityOptions(entry.TemplateId, entry.Quality);
+            EquipmentLevelCombo.SelectedItem = entry.Level;
+            EquipmentForgeLevelCombo.SelectedItem = entry.ForgeLevel;
+            _affixes.Clear();
+            foreach (var affix in entry.Affixes)
+                _affixes.Add(CloneAffix(affix));
+            _currentEditEntry = entry;
+        }
+        finally { _loadingControls = false; }
+
+        await LoadEquipmentRulesAsync();
+    }
+
     private void EquipmentSearchText_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_equipmentView == null)
-            return;
         var keyword = EquipmentSearchText.Text.Trim();
         // 使用 WPF 集合视图过滤，不复制装备集合，搜索时可以保留原始规则数据。
-        _equipmentView.Filter = item =>
+        var view = _equipmentEditMode ? _equipmentInventoryView : _equipmentView;
+        if (view == null) return;
+
+        view.Filter = item =>
         {
-            if (item is not EquipmentTemplate equipment || string.IsNullOrWhiteSpace(keyword))
-                return true;
-            return equipment.Name.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
-                   equipment.Id.ToString(CultureInfo.InvariantCulture).Contains(keyword, StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(keyword)) return true;
+            return item switch
+            {
+                EquipmentTemplate template =>
+                    template.Name.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+                    template.Id.ToString(CultureInfo.InvariantCulture).Contains(keyword, StringComparison.OrdinalIgnoreCase),
+                EquipmentInventoryEntry entry =>
+                    entry.Name.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+                    entry.TemplateId.ToString(CultureInfo.InvariantCulture).Contains(keyword, StringComparison.OrdinalIgnoreCase),
+                _ => true
+            };
         };
-        _equipmentView.Refresh();
-        if (EquipmentTemplateCombo.SelectedItem == null && !_equipmentView.IsEmpty)
+        view.Refresh();
+        if (EquipmentTemplateCombo.SelectedItem == null && !view.IsEmpty)
             EquipmentTemplateCombo.SelectedIndex = 0;
     }
 
@@ -299,41 +444,66 @@ public partial class MainWindow : Window
     {
         if (_loadingControls)
             return;
+
         if (sender == EquipmentTemplateCombo)
         {
+            if (_equipmentEditMode && EquipmentTemplateCombo.SelectedItem is EquipmentInventoryEntry entry)
+            {
+                await ApplyEditorEntrySelectionAsync(entry);
+                return;
+            }
             _loadingControls = true;
-            RefreshQualityOptions();
-            _loadingControls = false;
+            try
+            {
+                RefreshQualityOptions();
+                _currentEditEntry = null;
+            }
+            finally { _loadingControls = false; }
         }
         await LoadEquipmentRulesAsync();
     }
 
-    private void RefreshQualityOptions()
+    private void RefreshQualityOptions(int? templateId = null, int? preferredQuality = null)
     {
-        if (_snapshot == null || EquipmentTemplateCombo.SelectedItem is not EquipmentTemplate template)
-        {
-            QualityCombo.ItemsSource = null;
-            return;
-        }
-        var options = _snapshot.EquipmentQualities
-            .Where(option => template.AllowedQualities.Contains(option.Value))
-            .ToList();
+        if (_snapshot == null) { QualityCombo.ItemsSource = null; return; }
+
+        EquipmentTemplate? template = templateId.HasValue
+            ? _snapshot.EquipmentTemplates.FirstOrDefault(t => t.Id == templateId.Value)
+            : EquipmentTemplateCombo.SelectedItem as EquipmentTemplate;
+        if (template == null) { QualityCombo.ItemsSource = null; return; }
+
+        // 生成器模式：只展示该模板在游戏随机流程里会产出的品级（原来的行为）。
+        // 编辑器模式：展示全部品级，因为已存在的装备实例可能持有不在随机产出枚举里的品级（例如“套装”）。
+        var options = _equipmentEditMode
+            ? _snapshot.EquipmentQualities.ToList()
+            : _snapshot.EquipmentQualities.Where(option => template.AllowedQualities.Contains(option.Value)).ToList();
         QualityCombo.ItemsSource = options;
-        if (options.Count > 0)
-        {
-            var baseIndex = options.FindIndex(option => option.Value == template.BaseQuality);
-            QualityCombo.SelectedIndex = baseIndex >= 0 ? baseIndex : 0;
-        }
+        if (options.Count == 0) return;
+
+        var index = preferredQuality.HasValue
+            ? options.FindIndex(option => option.Value == preferredQuality.Value)
+            : -1;
+        if (index < 0) index = options.FindIndex(option => option.Value == template.BaseQuality);
+        QualityCombo.SelectedIndex = index >= 0 ? index : 0;
     }
 
     private async Task LoadEquipmentRulesAsync()
     {
-        if (EquipmentTemplateCombo.SelectedItem is not EquipmentTemplate template ||
+        if (EquipmentTemplateCombo.SelectedItem is not { } selected ||
             QualityCombo.SelectedItem is not RuleOption quality ||
             EquipmentLevelCombo.SelectedItem is not int level)
             return;
 
         // 连续切换下拉框时只接受最后一次响应，避免较慢的旧响应覆盖当前选择。
+        // 生成器模式从 EquipmentTemplate 取模板 ID；编辑器模式从 EquipmentInventoryEntry 取。
+        var templateId = selected switch
+        {
+            EquipmentTemplate t => t.Id,
+            EquipmentInventoryEntry e => e.TemplateId,
+            _ => 0
+        };
+        if (templateId == 0) return;
+
         var requestVersion = ++_rulesRequestVersion;
         AffixRuleText.Text = "正在读取当前游戏的词条池和数量限制……";
         try
@@ -341,14 +511,15 @@ public partial class MainWindow : Window
             var response = await BridgeClient.SendAsync(new EditorRequest
             {
                 Action = "equipmentRules",
-                Equipment = new EquipmentEdit { TemplateId = template.Id, Quality = quality.Value, Level = level }
+                Equipment = new EquipmentEdit { TemplateId = templateId, Quality = quality.Value, Level = level }
             });
             if (requestVersion != _rulesRequestVersion)
                 return;
             EnsureSuccess(response);
             _equipmentRules = response.EquipmentRules ?? throw new InvalidDataException("桥接没有返回装备规则。");
+
             var previousForgeLevel = EquipmentForgeLevelCombo.SelectedItem is int selectedForgeLevel
-                ? selectedForgeLevel : 0;
+                ? selectedForgeLevel : (_currentEditEntry?.ForgeLevel ?? 0);
             EquipmentForgeLevelCombo.ItemsSource = _equipmentRules.AllowedForgeLevels;
             EquipmentForgeLevelCombo.SelectedItem = _equipmentRules.AllowedForgeLevels.Contains(previousForgeLevel)
                 ? previousForgeLevel
@@ -364,14 +535,35 @@ public partial class MainWindow : Window
                 .ToList();
             AffixQualityCombo.ItemsSource = affixCategories;
             AffixQualityCombo.SelectedIndex = affixCategories.Count > 0 ? 0 : -1;
-            _affixes.Clear();
-            foreach (var affix in _equipmentRules.GeneratedAffixes)
+
+            // 关键差异：只有“生成器”模式才用规则里的默认词条覆盖当前列表；
+            // 编辑器模式保留装备自带的词条，用户直接在上面改。
+            if (!_equipmentEditMode)
             {
                 // 自动生成的初始词条也默认使用当前装备规则允许的最高等级。
-                var editableAffix = CloneAffix(affix);
-                editableAffix.Level = _equipmentRules.MaximumAffixLevel;
-                _affixes.Add(editableAffix);
+                _affixes.Clear();
+                foreach (var affix in _equipmentRules.GeneratedAffixes)
+                {
+                    var editableAffix = CloneAffix(affix);
+                    editableAffix.Level = _equipmentRules.MaximumAffixLevel;
+                    _affixes.Add(editableAffix);
+                }
             }
+            else
+            {
+                // 让装备自带词条也能与最新规则的逐级数值范围联动。
+                foreach (var affix in _affixes)
+                    foreach (var option in _equipmentRules.AllowedAffixes)
+                        if (option.Id == affix.Id && option.Quality == affix.Quality)
+                        {
+                            affix.ValueRanges = option.ValueRanges
+                                .Select(range => new AffixValueRange
+                                { Level = range.Level, Minimum = range.Minimum, Maximum = range.Maximum })
+                                .ToList();
+                            break;
+                        }
+            }
+
             ResizeAffixColumnsToContent();
             var qualityLimits = string.Join("，", _equipmentRules.AffixQualityLimits
                 .OrderBy(pair => pair.Key)
@@ -505,6 +697,80 @@ public partial class MainWindow : Window
         SetStatus($"已从待生成装备中删除词条 {affix.Id}。", true);
     }
 
+    private async void EquipmentActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunAsync(async () =>
+        {
+            CommitGrid(AffixesGrid);
+            if (HasValidationError(AffixesGrid))
+                throw new InvalidOperationException("词条等级和数值只能填写整数；词条数值可以留空并由游戏随机生成。");
+            if (QualityCombo.SelectedItem is not RuleOption quality)
+                throw new InvalidOperationException("请选择合法品级。");
+            if (EquipmentLevelCombo.SelectedItem is not int level)
+                throw new InvalidOperationException("请选择合法装备等级。");
+            if (EquipmentForgeLevelCombo.SelectedItem is not int forgeLevel)
+                throw new InvalidOperationException("请选择合法锻造等级。");
+            if (_equipmentRules == null)
+                throw new InvalidOperationException("尚未读取当前组合的游戏规则。");
+
+            foreach (var affix in _affixes)
+                if (affix.Level < 1 || affix.Level > _equipmentRules.MaximumAffixLevel)
+                    throw new InvalidOperationException($"词条 {affix.Id} 的合法等级为 1-{_equipmentRules.MaximumAffixLevel}。");
+
+            if (_equipmentEditMode)
+            {
+                if (_currentEditEntry == null)
+                    throw new InvalidOperationException("请先在背包中选择要编辑的装备。");
+                var entry = _currentEditEntry;
+                var response = await BridgeClient.SendAsync(new EditorRequest
+                {
+                    Action = "replaceEquipment",
+                    EquipmentReplace = new EquipmentReplaceEdit
+                    {
+                        // GUID 由 equipmentInventory 分配；只要不刷新列表就一直有效。
+                        Guid = entry.Guid,
+                        Equipment = new EquipmentEdit
+                        {
+                            TemplateId = entry.TemplateId,
+                            Quality = quality.Value,
+                            Level = level,
+                            ForgeLevel = forgeLevel,
+                            Affixes = _affixes.Select(CloneAffix).ToList()
+                        }
+                    }
+                });
+                EnsureSuccess(response);
+                if (response.EquipmentInventory != null)
+                    await ApplyEquipmentInventoryAsync(response.EquipmentInventory, applySelection: true);
+                if (response.Inventory != null)
+                    BindInventory(response.Inventory);
+                return response.Message;
+            }
+            else
+            {
+                var template = EquipmentTemplateCombo.SelectedItem as EquipmentTemplate
+                    ?? throw new InvalidOperationException("请选择装备模板。");
+                var response = await BridgeClient.SendAsync(new EditorRequest
+                {
+                    Action = "generateEquipment",
+                    Equipment = new EquipmentEdit
+                    {
+                        TemplateId = template.Id,
+                        Quality = quality.Value,
+                        Level = level,
+                        ForgeLevel = forgeLevel,
+                        Affixes = _affixes.Select(CloneAffix).ToList()
+                    }
+                }); 
+                EnsureSuccess(response);
+                // 生成后静默刷新装备列表缓存，用户切到编辑器 tab 时立即看到最新装备。
+                await ReloadEquipmentInventoryAsync(applySelection: false);
+                return response.Message;
+            }
+        });
+    }
+
+    /*
     private async void GenerateEquipmentButton_Click(object sender, RoutedEventArgs e)
     {
         await RunAsync(async () =>
@@ -544,6 +810,7 @@ public partial class MainWindow : Window
             return response.Message;
         });
     }
+    */
 
     private void HeroCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

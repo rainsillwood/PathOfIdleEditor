@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>PathOfIdleEditorBridge</AssemblyName>
@@ -13,7 +13,7 @@
       https://nuget.samboy.dev/v3/index.json
     </RestoreAdditionalProjectSources>
     <RootNamespace>PathOfIdleEditor</RootNamespace>
-    <PathOfIdleGameDir Condition="'$(PathOfIdleGameDir)' == ''">D:\app\Steam\steamapps\common\PathOfIdle</PathOfIdleGameDir>
+    <PathOfIdleGameDir Condition="'$(PathOfIdleGameDir)' == ''">F:\SteamLibrary\steamapps\common\PathOfIdle</PathOfIdleGameDir>
   </PropertyGroup>
 
   <Target Name="ValidatePathOfIdleGameDir" BeforeTargets="ResolveReferences">
@@ -24,6 +24,7 @@
   <ItemGroup>
     <PackageReference Include="BepInEx.Unity.IL2CPP" Version="6.0.0-be.*" IncludeAssets="compile" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
+	<PackageReference Include="HarmonyX" Version="2.*" />
   </ItemGroup>
 
   <ItemGroup>

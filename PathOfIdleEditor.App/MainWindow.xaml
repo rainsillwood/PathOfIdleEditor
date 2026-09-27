@@ -117,119 +117,127 @@
 
     <TabControl Background="Transparent" BorderThickness="0">
       <TabItem Header="装备生成器">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
-          <StackPanel>
-            <Border Style="{StaticResource Card}">
-              <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <TextBlock Grid.ColumnSpan="2" Text="基础规则" FontSize="18" FontWeight="SemiBold" Margin="4,0,4,10" />
-                <Label Grid.Row="1" Content="搜索装备名称或 ID" />
-                <TextBox Grid.Row="1" Grid.Column="1" x:Name="EquipmentSearchText" TextChanged="EquipmentSearchText_TextChanged" />
-                <Label Grid.Row="2" Content="装备模板" />
-                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EquipmentTemplateCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
-                <Label Grid.Row="3" Content="该装备支持的品级" />
-                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="QualityCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
-                <Label Grid.Row="4" Content="合法装备等级" />
-                <ComboBox Grid.Row="4" Grid.Column="1" x:Name="EquipmentLevelCombo" SelectionChanged="EquipmentSelectionChanged" IsTextSearchEnabled="True" />
-                <Label Grid.Row="5" Content="锻造等级" />
-                <ComboBox Grid.Row="5" Grid.Column="1" x:Name="EquipmentForgeLevelCombo" IsTextSearchEnabled="True" />
-              </Grid>
-            </Border>
-
-            <Border Style="{StaticResource Card}">
-              <Grid>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <StackPanel Grid.ColumnSpan="2">
-                  <TextBlock Text="词条编辑" FontSize="18" FontWeight="SemiBold" />
-                  <TextBlock x:Name="AffixRuleText" Text="选择装备、品级和等级后读取游戏词条池。"
-                             Foreground="#94A3B8" Margin="0,4,0,10" TextWrapping="Wrap" />
-                </StackPanel>
-                <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,8">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="200" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                  </Grid.ColumnDefinitions>
-                  <ComboBox Grid.Column="0" x:Name="AffixQualityCombo" DisplayMemberPath="Display" SelectionChanged="AffixQualityCombo_SelectionChanged" />
-                  <ComboBox Grid.Column="1" x:Name="AllowedAffixCombo" DisplayMemberPath="Display" MinWidth="300" />
-                  <Button Grid.Column="2" Content="添加词条" Click="AddAffixButton_Click" />
-                  <Button Grid.Column="3" Content="删除选中" Click="RemoveAffixButton_Click" Background="#B91C1C" />
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <TabControl x:Name="EquipmentModeTabs" Grid.Row="0" Height="47" Margin="0,0,0,10" Background="Transparent" BorderThickness="0" SelectionChanged="EquipmentModeTabs_SelectionChanged">
+            <TabItem Header="生成器" IsSelected="True" />
+            <TabItem Header="编辑器" />
+          </TabControl>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+            <StackPanel>
+              <Border Style="{StaticResource Card}">
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <TextBlock Grid.ColumnSpan="3" Text="基础规则" FontSize="18" FontWeight="SemiBold" Margin="4,0,4,10" />
+                  <Label Grid.Row="1" Content="搜索装备名称或 ID" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EquipmentSearchText" TextChanged="EquipmentSearchText_TextChanged" />
+                  <Label Grid.Row="2" x:Name="EquipmentTemplateLabel" Content="装备模板" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EquipmentTemplateCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
+                  <Button Grid.Row="2" Grid.Column="2" x:Name="RefreshEquipmentListButton" Content="刷新装备列表" Click="RefreshEquipmentListButton_Click" Visibility="Collapsed" />
+                  <Label Grid.Row="3" Content="该装备支持的品级" />
+                  <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="QualityCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
+                  <Label Grid.Row="4" Content="合法装备等级" />
+                  <ComboBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EquipmentLevelCombo" SelectionChanged="EquipmentSelectionChanged" IsTextSearchEnabled="True" />
+                  <Label Grid.Row="5" Content="锻造等级" />
+                  <ComboBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EquipmentForgeLevelCombo" IsTextSearchEnabled="True" />
                 </Grid>
-                <DataGrid Grid.Row="2" Grid.ColumnSpan="2" x:Name="AffixesGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" MinHeight="240"
-                          EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                          VirtualizingPanel.IsVirtualizingWhenGrouping="True" RowHeight="38" ColumnHeaderHeight="40" FontSize="14">
-                  <DataGrid.GroupStyle>
-                    <GroupStyle>
-                      <GroupStyle.HeaderTemplate>
-                        <DataTemplate>
-                          <Border BorderBrush="#475569" BorderThickness="0,1,0,1" Padding="10,6" Margin="0,6,0,2">
-                            <Border.Style>
-                              <Style TargetType="Border">
-                                <!-- 普通词条使用中性灰；未知的新档位也安全回退到该配色。 -->
-                                <Setter Property="Background" Value="#293241" />
-                                <Style.Triggers>
-                                  <DataTrigger Binding="{Binding Name}" Value="精良">
-                                    <Setter Property="Background" Value="#17375E" />
-                                    <Setter Property="BorderBrush" Value="#2563EB" />
-                                  </DataTrigger>
-                                  <DataTrigger Binding="{Binding Name}" Value="稀有">
-                                    <Setter Property="Background" Value="#493A16" />
-                                    <Setter Property="BorderBrush" Value="#D97706" />
-                                  </DataTrigger>
-                                  <DataTrigger Binding="{Binding Name}" Value="神话">
-                                    <!-- 沿用游戏的神话红色边框，并提高文字与深色背景的对比度。 -->
-                                    <Setter Property="Background" Value="#4A1D22" />
-                                    <Setter Property="BorderBrush" Value="#B32832" />
-                                  </DataTrigger>
-                                </Style.Triggers>
-                              </Style>
-                            </Border.Style>
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold">
-                              <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                  <Setter Property="Foreground" Value="#CBD5E1" />
+              </Border>
+
+              <Border Style="{StaticResource Card}">
+                <Grid>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                  </Grid.RowDefinitions>
+                  <StackPanel Grid.ColumnSpan="2">
+                    <TextBlock Text="词条编辑" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AffixRuleText" Text="选择装备、品级和等级后读取游戏词条池。"
+                               Foreground="#94A3B8" Margin="0,4,0,10" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="200" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0" x:Name="AffixQualityCombo" DisplayMemberPath="Display" SelectionChanged="AffixQualityCombo_SelectionChanged" />
+                    <ComboBox Grid.Column="1" x:Name="AllowedAffixCombo" DisplayMemberPath="Display" MinWidth="300" />
+                    <Button Grid.Column="2" Content="添加词条" Click="AddAffixButton_Click" />
+                    <Button Grid.Column="3" Content="删除选中" Click="RemoveAffixButton_Click" Background="#B91C1C" />
+                  </Grid>
+                  <DataGrid Grid.Row="2" Grid.ColumnSpan="2" x:Name="AffixesGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" MinHeight="240"
+                            EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                            VirtualizingPanel.IsVirtualizingWhenGrouping="True" RowHeight="38" ColumnHeaderHeight="40" FontSize="14">
+                    <DataGrid.GroupStyle>
+                      <GroupStyle>
+                        <GroupStyle.HeaderTemplate>
+                          <DataTemplate>
+                            <Border BorderBrush="#475569" BorderThickness="0,1,0,1" Padding="10,6" Margin="0,6,0,2">
+                              <Border.Style>
+                                <Style TargetType="Border">
+                                  <!-- 普通词条使用中性灰；未知的新档位也安全回退到该配色。 -->
+                                  <Setter Property="Background" Value="#293241" />
                                   <Style.Triggers>
                                     <DataTrigger Binding="{Binding Name}" Value="精良">
-                                      <Setter Property="Foreground" Value="#60A5FA" />
+                                      <Setter Property="Background" Value="#17375E" />
+                                      <Setter Property="BorderBrush" Value="#2563EB" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding Name}" Value="稀有">
-                                      <Setter Property="Foreground" Value="#FBBF24" />
+                                      <Setter Property="Background" Value="#493A16" />
+                                      <Setter Property="BorderBrush" Value="#D97706" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding Name}" Value="神话">
-                                      <Setter Property="Foreground" Value="#F87171" />
+                                      <!-- 沿用游戏的神话红色边框，并提高文字与深色背景的对比度。 -->
+                                      <Setter Property="Background" Value="#4A1D22" />
+                                      <Setter Property="BorderBrush" Value="#B32832" />
                                     </DataTrigger>
                                   </Style.Triggers>
                                 </Style>
-                              </TextBlock.Style>
-                            </TextBlock>
-                          </Border>
-                        </DataTemplate>
-                      </GroupStyle.HeaderTemplate>
-                    </GroupStyle>
-                  </DataGrid.GroupStyle>
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="词条 ID" Binding="{Binding Id}" IsReadOnly="True" Width="Auto" MinWidth="90" />
-                    <DataGridTextColumn Header="词条描述" Binding="{Binding Name}" IsReadOnly="True" Width="Auto" MinWidth="260" MaxWidth="900" />
-                    <DataGridTextColumn Header="类别" Binding="{Binding QualityName}" IsReadOnly="True" Width="Auto" MinWidth="110" />
-                    <DataGridTextColumn Header="等级（可编辑）" Binding="{Binding Level, UpdateSourceTrigger=PropertyChanged}" Width="Auto" MinWidth="130" />
-                    <DataGridTextColumn Header="参考数值范围（不校验）" Binding="{Binding ValueRange}" IsReadOnly="True" Width="Auto" MinWidth="190" />
-                    <DataGridTextColumn Header="数值（留空随机）" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Width="Auto" MinWidth="150" />
-                  </DataGrid.Columns>
-                </DataGrid>
-              </Grid>
-            </Border>
-            <Button Content="生成装备并加入背包" Click="GenerateEquipmentButton_Click" Height="46" FontSize="16" />
-          </StackPanel>
-        </ScrollViewer>
+                              </Border.Style>
+                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#CBD5E1" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding Name}" Value="精良">
+                                        <Setter Property="Foreground" Value="#60A5FA" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding Name}" Value="稀有">
+                                        <Setter Property="Foreground" Value="#FBBF24" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding Name}" Value="神话">
+                                        <Setter Property="Foreground" Value="#F87171" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                            </Border>
+                          </DataTemplate>
+                        </GroupStyle.HeaderTemplate>
+                      </GroupStyle>
+                    </DataGrid.GroupStyle>
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="词条 ID" Binding="{Binding Id}" IsReadOnly="True" Width="Auto" MinWidth="90" />
+                      <DataGridTextColumn Header="词条描述" Binding="{Binding Name}" IsReadOnly="True" Width="Auto" MinWidth="260" MaxWidth="900" />
+                      <DataGridTextColumn Header="类别" Binding="{Binding QualityName}" IsReadOnly="True" Width="Auto" MinWidth="110" />
+                      <DataGridTextColumn Header="等级（可编辑）" Binding="{Binding Level, UpdateSourceTrigger=PropertyChanged}" Width="Auto" MinWidth="130" />
+                      <DataGridTextColumn Header="参考数值范围（不校验）" Binding="{Binding ValueRange}" IsReadOnly="True" Width="Auto" MinWidth="190" />
+                      <DataGridTextColumn Header="数值（留空随机）" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Width="Auto" MinWidth="150" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </Grid>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+          <Button Grid.Row="2" x:Name="EquipmentActionButton" Content="生成装备并加入背包" Click="EquipmentActionButton_Click" Height="46" FontSize="16" />
+        </Grid>
       </TabItem>
 
       <TabItem Header="物品编辑器">
@@ -317,6 +325,7 @@
 
           <DataGrid Grid.Row="1" x:Name="LordJobsGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single"
                     SelectionChanged="LordJobsGrid_SelectionChanged" Margin="0,0,0,10"
+                    CellEditEnding="LordJobsGrid_CellEditEnding"
                     EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling">
             <DataGrid.Columns>
               <DataGridTextColumn Header="职业 ID" Binding="{Binding JobId}" IsReadOnly="True" Width="80" />

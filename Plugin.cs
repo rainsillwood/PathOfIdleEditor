@@ -15,6 +15,7 @@ public sealed class Plugin : BasePlugin
     {
         Log = base.Log;
 
+        new HarmonyLib.Harmony(MyPluginInfo.PLUGIN_GUID).PatchAll();
         // 管道监听在线程池中运行；所有游戏对象读写会由 BridgeBehaviour 转回 Unity 主线程。
         BridgeServer.Start();
         ClassInjector.RegisterTypeInIl2Cpp<BridgeBehaviour>();

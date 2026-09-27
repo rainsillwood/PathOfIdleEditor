@@ -2,11 +2,30 @@ using System.Collections.Generic;
 
 namespace PathOfIdleEditor;
 
+// ============================================================
+// 【协议文件】桌面端与桥接 Mod 之间的命名管道协议定义。
+//
+// 客户端 PathOfIdleEditor.App.Contracts 里有一份几乎相同的类型定义，
+// 两边必须逐字段对齐（名称、类型、可空性）。
+//
+// - 新增/删除/重命名字段 → 必须同步修改两侧。
+// - JsonSerializer 会静默忽略缺失/多余的字段，字段不对齐时不会报错，
+//   而是静默表现为「读不到数据 / 写不进去」。
+// - 修改本文件后，请同步提升 BridgeProtocol.Version。
+// ============================================================
+internal static class BridgeProtocol
+{
+    // 协议版本号：两端不一致时客户端会主动拒绝响应。
+    // 任何字段增删/重命名/类型变化都必须 +1。
+    internal const int Version = 1;
+}
+
 // 管道协议只传输普通 CLR 对象，不能直接序列化 IL2CPP 游戏对象。
 internal sealed class EditorRequest
 {
     public string Action { get; set; } = "";
     public EquipmentEdit? Equipment { get; set; }
+    public EquipmentReplaceEdit? EquipmentReplace { get; set; }
     public HeroEdit? Hero { get; set; }
     public InventoryItemEdit? InventoryItem { get; set; }
     public InventoryAddEdit? InventoryAdd { get; set; }
@@ -15,9 +34,12 @@ internal sealed class EditorRequest
 
 internal sealed class EditorResponse
 {
+    // 每个响应都带上服务端当前的协议版本号，客户端据此判断两边是否兼容。
+    public int ProtocolVersion { get; set; } = BridgeProtocol.Version;
     public bool Success { get; set; }
     public string Message { get; set; } = "";
     public EditorSnapshot? Snapshot { get; set; }
+    public EquipmentInventorySnapshot? EquipmentInventory { get; set; }
     public EquipmentRules? EquipmentRules { get; set; }
     public InventorySnapshot? Inventory { get; set; }
     public LordEdit? Lord { get; set; }
@@ -138,6 +160,32 @@ internal sealed class RuleOption
 {
     public int Value { get; set; }
     public string Name { get; set; } = "";
+}
+
+internal sealed class EquipmentInventoryEntry
+{
+    // 桥接侧会话级标识，仅在下一次 equipmentInventory 前有效。
+    public string Guid { get; set; } = "";
+    public int FieldIndex { get; set; }
+    public int TemplateId { get; set; }
+    public string Name { get; set; } = "";
+    public int Quality { get; set; }
+    public string QualityName { get; set; } = "";
+    public int Level { get; set; }
+    public int ForgeLevel { get; set; }
+    public List<AffixEdit> Affixes { get; set; } = new();
+}
+
+internal sealed class EquipmentInventorySnapshot
+{
+    public List<EquipmentInventoryEntry> Entries { get; set; } = new();
+}
+
+internal sealed class EquipmentReplaceEdit
+{
+    // GUID 由 equipmentInventory 返回；缺失或过期都会拒绝。
+    public string Guid { get; set; } = "";
+    public EquipmentEdit Equipment { get; set; } = new();
 }
 
 internal sealed class EquipmentTemplate

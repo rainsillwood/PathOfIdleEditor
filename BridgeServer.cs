@@ -63,6 +63,13 @@ internal static class BridgeServer
         "inventory" => new EditorResponse { Success = true, Message = "已刷新背包物品。", Inventory = GameEditorService.GetInventorySnapshot() },
         "updateInventoryItem" when request.InventoryItem != null => GameEditorService.UpdateInventoryItem(request.InventoryItem),
         "addInventoryItem" when request.InventoryAdd != null => GameEditorService.AddInventoryItem(request.InventoryAdd),
+        "equipmentInventory" => new EditorResponse
+        {
+            Success = true,
+            Message = "已读取背包中的装备。",
+            EquipmentInventory = GameEditorService.GetEquipmentInventorySnapshot()
+        },
+        "replaceEquipment" when request.EquipmentReplace != null => GameEditorService.ReplaceEquipment(request.EquipmentReplace),
         _ => new EditorResponse { Success = false, Message = $"不支持的请求：{request.Action}" }
     };
 
