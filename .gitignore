@@ -34,3 +34,5 @@ Desktop.ini
 
 # Local deployment copies
 deploy/
+/docs
+/decompile
