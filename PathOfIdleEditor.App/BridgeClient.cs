@@ -31,7 +31,8 @@ internal static class BridgeClient
             using var reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true);
             await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
             await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions).AsMemory(), timeoutCts.Token);
-            var responseJson = await reader.ReadLineAsync(timeoutCts.Token);
+            // net6 没有 ReadLineAsync(CancellationToken) 重载（.NET 7 才有），用 Task.WaitAsync 保持超时语义。
+            var responseJson = await reader.ReadLineAsync().WaitAsync(timeoutCts.Token);
             var response = JsonSerializer.Deserialize<EditorResponse>(responseJson ?? "", JsonOptions)
                 ?? throw new InvalidDataException("Mod 桥接返回了无效数据。");
 

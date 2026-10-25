@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 
 namespace PathOfIdleEditor;
 
@@ -20,13 +20,18 @@ internal static class SaveAffixValuePatch
     // 与 GameEditorService 写入时使用的魔数保持一致。
     internal const int ManualValueAbilityIdSentinel = int.MinValue;
 
+    // 判断一条词条是否带着「手填数值」哨兵。桥接用它回显「强制越界」勾选状态。
+    internal static bool HasManualValue(SaveAffixData? affixData)
+        => affixData != null &&
+           affixData.talentLevel == 1 &&
+           affixData.abilityId == ManualValueAbilityIdSentinel;
+
     [HarmonyPrefix]
     private static bool Prefix(SaveAffixData affixData, ref int __result)
     {
         if (affixData == null)
             return true;
-        if (affixData.talentLevel == 1 &&
-            affixData.abilityId == ManualValueAbilityIdSentinel)
+        if (HasManualValue(affixData))
         {
             __result = affixData.value;
             return false;   // 跳过原方法

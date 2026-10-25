@@ -54,14 +54,22 @@ internal static class BridgeServer
 
     private static EditorResponse Handle(EditorRequest request) => request.Action switch
     {
-        "snapshot" => new EditorResponse { Success = true, Message = "已连接游戏。", Snapshot = GameEditorService.GetSnapshot() },
+        "snapshot" => HandleSnapshot(),
+        // 诊断：随时重新输出词条档位/数值探针（只在模组设置里开启了详细日志时才有内容）。
+        "affixProbe" when Plugin.VerboseEnabled => new EditorResponse { Success = true, Message = GameEditorService.ProbeAffixValueTypes() },
+        // 诊断：输出「品级表字段 / 模板 legendAffixCount / 各部位池子条数」对照表。
+        "templateReport" when Plugin.VerboseEnabled => new EditorResponse { Success = true, Message = GameEditorService.BuildTemplateReport() },
         "equipmentRules" when request.Equipment != null => new EditorResponse { Success = true, Message = "已读取当前装备规则。", EquipmentRules = GameEditorService.GetEquipmentRules(request.Equipment) },
+        // 需求 2.2：词条等级 / 装备质量 / 装备等级变化后只刷新参考值，不重建整个候选池。
+        "affixReference" when request.Equipment != null => new EditorResponse { Success = true, Message = "", AffixReferences = GameEditorService.GetAffixReferences(request.Equipment) },
         "generateEquipment" when request.Equipment != null => new EditorResponse { Success = true, Message = GameEditorService.GenerateEquipment(request.Equipment) },
         "updateHero" when request.Hero != null => new EditorResponse { Success = true, Message = GameEditorService.UpdateHero(request.Hero) },
         "changeHeroQuality" when request.Hero != null => GameEditorService.ChangeHeroQuality(request.Hero.UniqueId, request.Hero.Quality),
         "updateLord" when request.Lord != null => GameEditorService.UpdateLord(request.Lord),
         "inventory" => new EditorResponse { Success = true, Message = "已刷新背包物品。", Inventory = GameEditorService.GetInventorySnapshot() },
         "updateInventoryItem" when request.InventoryItem != null => GameEditorService.UpdateInventoryItem(request.InventoryItem),
+        // 批量：一次提交表格里所有改动过的行。
+        "updateInventoryCounts" when request.InventoryItems != null => GameEditorService.UpdateInventoryItems(request.InventoryItems),
         "addInventoryItem" when request.InventoryAdd != null => GameEditorService.AddInventoryItem(request.InventoryAdd),
         "equipmentInventory" => new EditorResponse
         {
@@ -72,6 +80,63 @@ internal static class BridgeServer
         "replaceEquipment" when request.EquipmentReplace != null => GameEditorService.ReplaceEquipment(request.EquipmentReplace),
         _ => new EditorResponse { Success = false, Message = $"不支持的请求：{request.Action}" }
     };
+
+    // 首次连接时打一次探针（只在开启详细日志时执行），方便对照客户端界面排查。
+    internal static void LogAffixProbe(string reason)
+    {
+        if (!Plugin.VerboseEnabled)
+            return;
+        try
+        {
+            Plugin.Log.LogInfo($"[AffixProbe] {reason}：{GameEditorService.ProbeAffixValueTypes()}");
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogWarning($"[AffixProbe] 执行失败：{exception.Message}");
+        }
+    }
+
+    // 诊断：把「品级表字段 vs 模板字段 vs 实际池子条数」的对照表写进日志（只在开启详细日志时执行）。
+    internal static void LogTemplateReport(string reason)
+    {
+        if (!Plugin.VerboseEnabled)
+            return;
+        try
+        {
+            Plugin.Log.LogInfo($"[TemplateReport] {reason}：{GameEditorService.BuildTemplateReport()}");
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogWarning($"[TemplateReport] 执行失败：{exception.Message}");
+        }
+        try
+        {
+            var path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "PathOfIdleEditor-tables.tsv");
+            var rows = GameEditorService.WriteTemplateDump(path);
+            Plugin.Log.LogInfo($"[TemplateReport] 表数据已导出：{path}（TEquip {rows} 行）");
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogWarning($"[TemplateReport] 导出表数据失败：{exception.Message}");
+        }
+        try
+        {
+            var path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "PathOfIdleEditor-distort.tsv");
+            var rows = GameEditorService.WriteDistortTableDump(path);
+            Plugin.Log.LogInfo($"[TemplateReport] 监牢扭曲表已导出：{path}（{rows} 行）");
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogWarning($"[TemplateReport] 导出监牢扭曲表失败：{exception.Message}");
+        }
+    }
+
+    private static EditorResponse HandleSnapshot()
+    {
+        LogAffixProbe("首次连接");
+        LogTemplateReport("首次连接");
+        return new EditorResponse { Success = true, Message = "已连接游戏。", Snapshot = GameEditorService.GetSnapshot() };
+    }
 
     private static async Task ListenLoop(CancellationToken cancellationToken)
     {

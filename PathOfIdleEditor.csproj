@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>PathOfIdleEditorBridge</AssemblyName>
@@ -13,6 +13,8 @@
       https://nuget.samboy.dev/v3/index.json
     </RestoreAdditionalProjectSources>
     <RootNamespace>PathOfIdleEditor</RootNamespace>
+    <!-- net6.0 已停止支持；与 BepInEx 6 IL2CPP 运行时保持一致是刻意选择，这里静音 NETSDK1138。 -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
     <PathOfIdleGameDir Condition="'$(PathOfIdleGameDir)' == ''">F:\SteamLibrary\steamapps\common\PathOfIdle</PathOfIdleGameDir>
   </PropertyGroup>
 
@@ -28,11 +30,25 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="PathOfIdleEditor.App\**\*" />
+    <!-- decompile/ 是反编译参考（dnSpy 导出 + 380+ MB 的 GameAssembly.c）。
+         根目录工程的 SDK 默认 **\*.cs 通配会把它当源码，必须在 Compile 里排除。 -->
+    <Compile Remove="decompile\**\*" />
+    <None Remove="decompile\**\*" />
+    <EmbeddedResource Remove="decompile\**\*" />
     <EmbeddedResource Remove="PathOfIdleEditor.App\**\*" />
+    <Compile Remove="PathOfIdleEditor.App\**\*" />
     <None Remove="PathOfIdleEditor.App\**\*" />
     <Page Remove="PathOfIdleEditor.App\**\*" />
     <ApplicationDefinition Remove="PathOfIdleEditor.App\**\*" />
+    <!-- PathOfIdleTweaks/ 是同一工作区里的**独立 BepInEx 插件工程**（自带 csproj / obj / bin）。
+         它必须用 `dotnet build PathOfIdleTweaks\PathOfIdleTweaks.csproj` 单独构建；
+         不排除的话，根工程的 **\*.cs 通配会把它的源码和 obj/ 生成文件一起编进来
+         （表现为 AssemblyInfo 特性重复、MyPluginInfo 二义性）。 -->
+    <Compile Remove="PathOfIdleTweaks\**\*" />
+    <None Remove="PathOfIdleTweaks\**\*" />
+    <EmbeddedResource Remove="PathOfIdleTweaks\**\*" />
+    <Page Remove="PathOfIdleTweaks\**\*" />
+    <ApplicationDefinition Remove="PathOfIdleTweaks\**\*" />
   </ItemGroup>
 
   <ItemGroup>

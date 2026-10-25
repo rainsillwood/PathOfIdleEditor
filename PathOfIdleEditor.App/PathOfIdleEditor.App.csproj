@@ -1,21 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net6.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PathOfIdleEditor</AssemblyName>
     <RootNamespace>PathOfIdleEditor.App</RootNamespace>
+    <!-- 与桥接 DLL（net6.0，跑在 BepInEx 6 IL2CPP 里）保持同一框架；
+         SDK 默认给 net6.0 的 C# 10 语言版本，这里放开以免既有语法（集合表达式等）编译失败。 -->
+    <LangVersion>latest</LangVersion>
+    <!-- net6.0 已停止支持；为与 BepInEx 统一而刻意保留，这里静音 NETSDK1138。 -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <!-- 程序图标（嵌入 exe） -->
+    <ApplicationIcon>IconGroup103.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- 作为资源打包，供 MainWindow 的 Icon 属性使用 -->
+    <Resource Include="IconGroup103.ico" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <!-- 论坛发布使用 Windows x64 自包含单文件，用户无需另装 .NET 桌面运行库。 -->
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- 依赖框架发布：产物只有几百 KB，但用户需要自行安装 .NET 6 Desktop Runtime（x64）。
+         不指定 RuntimeIdentifier / PublishSingleFile：单文件发布需要 apphost 包，
+         而离线环境无法从 nuget.org 还原。需要单文件时在联网机器上执行：
+         dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -->
+    <SelfContained>false</SelfContained>
     <!-- WPF 不启用裁剪，避免反射使用的界面类型被错误移除。 -->
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>

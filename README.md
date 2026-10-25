@@ -30,16 +30,30 @@
 ## 项目结构
 
 ```text
+PathOfIdleEditor.sln          解决方案（下面三个工程都在里面）
 PathOfIdleEditor.csproj       BepInEx 后台桥接 Mod（无 UI）
 PathOfIdleEditor.App/         独立 Windows WPF 编辑器
+PathOfIdleTweaks/             独立的 BepInEx 插件（装备词条强化 / 监牢保底 / 血肉结晶保底升品）
 ```
+
+> `PathOfIdleTweaks/` 是**同工作区里的另一个独立工程**（自带 `.git`，且被本仓库 `.gitignore` 的
+> `/PathOfIdleTweaks` 排除），这里只是把它加进解决方案方便一起构建。
+> 根工程的 `**\*.cs` 通配已排除它（见 `PathOfIdleEditor.csproj`），所以它不会污染桥接的编译。
 
 ## 构建
 
 ```powershell
+# 一次构建三个工程
+dotnet build .\PathOfIdleEditor.sln -c Release
+
+# 也可以单独构建
 dotnet build .\PathOfIdleEditor.csproj -c Release
 dotnet build .\PathOfIdleEditor.App\PathOfIdleEditor.App.csproj -c Release
+dotnet build .\PathOfIdleTweaks\PathOfIdleTweaks.csproj -c Release
 ```
+
+> 若本地没有 `PathOfIdleTweaks/` 目录（例如从论坛/仓库只拿到桥接+编辑器），
+> 请改用上面两条单独构建命令 —— 解决方案里引用了该工程，缺目录时整个 sln 会构建失败。
 
 论坛发布版桌面程序使用 Windows x64 自包含单文件：
 

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Path of Idle 独立编辑器" Height="860" Width="1080"
-        MinHeight="720" MinWidth="900" WindowStartupLocation="CenterScreen"
+        MinHeight="720" MinWidth="900" WindowStartupLocation="CenterScreen" Icon="IconGroup103.ico"
         Background="#0B1120" Foreground="#E5E7EB" FontFamily="Microsoft YaHei UI">
   <Window.Resources>
     <SolidColorBrush x:Key="PanelBrush" Color="#111827" />
@@ -123,9 +123,18 @@
             <TabItem Header="生成器" IsSelected="True" />
             <TabItem Header="编辑器" />
           </TabControl>
-          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
-            <StackPanel>
-              <Border Style="{StaticResource Card}">
+          <!-- 表格卡片撑满剩余高度，同时保留小窗口下的滚动：
+               外层 ScrollViewer 负责"窗口过小时仍能滚到全部内容"，内层 Grid 的最小高度由代码绑定到
+               ScrollViewer 视口高度（SizeChanged → MinHeight），这样空间足够时 * 行会吃掉全部剩余高度，
+               空间不足时 Grid 撑高、外层滚动条接管。 -->
+          <ScrollViewer Grid.Row="1" x:Name="EquipmentContentScroll" VerticalScrollBarVisibility="Auto"
+                        Margin="0,12,0,0" SizeChanged="ContentScroll_SizeChanged">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+              <Border Grid.Row="0" Style="{StaticResource Card}">
                 <Grid>
                   <Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                   <Grid.RowDefinitions>
@@ -138,16 +147,54 @@
                   <Label Grid.Row="2" x:Name="EquipmentTemplateLabel" Content="装备模板" />
                   <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EquipmentTemplateCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
                   <Button Grid.Row="2" Grid.Column="2" x:Name="RefreshEquipmentListButton" Content="刷新装备列表" Click="RefreshEquipmentListButton_Click" Visibility="Collapsed" />
-                  <Label Grid.Row="3" Content="该装备支持的品级" />
-                  <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="QualityCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
-                  <Label Grid.Row="4" Content="合法装备等级" />
-                  <ComboBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EquipmentLevelCombo" SelectionChanged="EquipmentSelectionChanged" IsTextSearchEnabled="True" />
+                  <!-- 品级与装备质量合并到同一行：左侧 = 该装备支持的品级，右侧 = 装备质量（mainAttrGrade）。 -->
+                  <Label Grid.Row="3" Content="品级" />
+                  <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="QualityCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
+                    <TextBlock Grid.Column="1" Text="装备质量" VerticalAlignment="Center" Foreground="#94A3B8" Margin="12,0,8,0" />
+                    <ComboBox Grid.Column="2" x:Name="EquipmentGradeCombo" DisplayMemberPath="Display" SelectionChanged="EquipmentSelectionChanged" />
+                  </Grid>
+                  <!-- 需求 3：合法装备等级 = 输入框 + 滑块，滑块左右显示上下界。 -->
+                  <Label Grid.Row="4" Content="装备等级" />
+                  <DockPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" LastChildFill="True">
+                    <TextBox x:Name="EquipmentLevelText" DockPanel.Dock="Left" Width="70" Margin="6,0,0,0"
+                             TextChanged="EquipmentRangeInput_TextChanged" LostFocus="EquipmentRangeInput_LostFocus"
+                             KeyDown="EquipmentRangeInput_KeyDown" />
+                    <TextBlock x:Name="EquipmentLevelMinText" DockPanel.Dock="Left" VerticalAlignment="Center" MinWidth="34"
+                               TextAlignment="Right" Foreground="#94A3B8" Margin="0,0,6,0" />
+                    <TextBlock x:Name="EquipmentLevelMaxText" DockPanel.Dock="Right" VerticalAlignment="Center" MinWidth="34"
+                               Foreground="#94A3B8" Margin="6,0,0,0" />
+                    <Slider x:Name="EquipmentLevelSlider" Minimum="0" Maximum="0" IsSnapToTickEnabled="True" TickFrequency="1"
+                            SmallChange="1" LargeChange="1" VerticalAlignment="Center"
+                            ValueChanged="EquipmentLevelSlider_ValueChanged"
+                            PreviewMouseWheel="EquipmentRangeSlider_PreviewMouseWheel" />
+                  </DockPanel>
+                  <!-- 需求 3：锻造等级同上，范围来自当前装备等级的 TEquipForge 规则。 -->
                   <Label Grid.Row="5" Content="锻造等级" />
-                  <ComboBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="EquipmentForgeLevelCombo" IsTextSearchEnabled="True" />
+                  <DockPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" LastChildFill="True">
+                    <TextBox x:Name="EquipmentForgeLevelText" DockPanel.Dock="Left" Width="70" Margin="6,0,0,0"
+                             TextChanged="EquipmentRangeInput_TextChanged" LostFocus="EquipmentRangeInput_LostFocus"
+                             KeyDown="EquipmentRangeInput_KeyDown" />
+                    <TextBlock x:Name="EquipmentForgeLevelMinText" DockPanel.Dock="Left" VerticalAlignment="Center" MinWidth="34"
+                               TextAlignment="Right" Foreground="#94A3B8" Margin="0,0,6,0" />
+                    <TextBlock x:Name="EquipmentForgeLevelMaxText" DockPanel.Dock="Right" VerticalAlignment="Center" MinWidth="34"
+                               Foreground="#94A3B8" Margin="6,0,0,0" />
+                    <Slider x:Name="EquipmentForgeLevelSlider" Minimum="0" Maximum="0" IsSnapToTickEnabled="True" TickFrequency="1"
+                            SmallChange="1" LargeChange="1" VerticalAlignment="Center"
+                            ValueChanged="EquipmentForgeLevelSlider_ValueChanged"
+                            PreviewMouseWheel="EquipmentRangeSlider_PreviewMouseWheel" />
+                  </DockPanel>
+                  <!-- 镶嵌（开孔）信息已合并到下方「词条编辑」的信息栏里（AffixRuleText），
+                       这里不再单独占一行。实际开孔在词条表格的「镶嵌」组里逐行填写。 -->
                 </Grid>
               </Border>
 
-              <Border Style="{StaticResource Card}">
+              <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,0">
                 <Grid>
                   <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -161,41 +208,68 @@
                   </StackPanel>
                   <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="Auto" />
                       <ColumnDefinition Width="200" />
                       <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="Auto" />
-                      <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <ComboBox Grid.Column="0" x:Name="AffixQualityCombo" DisplayMemberPath="Display" SelectionChanged="AffixQualityCombo_SelectionChanged" />
-                    <ComboBox Grid.Column="1" x:Name="AllowedAffixCombo" DisplayMemberPath="Display" MinWidth="300" />
-                    <Button Grid.Column="2" Content="添加词条" Click="AddAffixButton_Click" />
-                    <Button Grid.Column="3" Content="删除选中" Click="RemoveAffixButton_Click" Background="#B91C1C" />
+                    <!-- 越界添加：忽略词条/孔位的数量限制。与表格内每行的「强制越界」相互独立
+                         （后者只作用于该行的数值 / 孔位类型）。 -->
+                    <CheckBox Grid.Column="0" x:Name="OverrideLimitsCheck" Content="越界" VerticalAlignment="Center"
+                              Foreground="#F87171"
+                              ToolTip="勾选后，添加词条/孔位时无视数量上限（例如传说最多 N 条、该品级开孔上限）；表格内每行的「强制越界」仍然只作用于该行。" />
+                    <Button Grid.Column="1" Content="添加" Click="AddAffixButton_Click" Margin="8,0,0,0" />
+                    <ComboBox Grid.Column="2" x:Name="AffixQualityCombo" DisplayMemberPath="Display" SelectionChanged="AffixQualityCombo_SelectionChanged" Margin="8,4,696,4" Grid.ColumnSpan="2" />
+                    <ComboBox Grid.Column="3" x:Name="AllowedAffixCombo" DisplayMemberPath="Display" MinWidth="300" />
                   </Grid>
+                  <!-- 高度交给所在卡片的自适应：外层 ScrollViewer 的内容 Grid 最小高度 = 视口高度
+                       （见 ContentScroll_SizeChanged），空间足够时本表格会撑满剩余高度，
+                       行数过多时由表格自身的滚动条滚动；MinHeight=240 只作为窗口极小时的兜底。 -->
                   <DataGrid Grid.Row="2" Grid.ColumnSpan="2" x:Name="AffixesGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" MinHeight="240"
                             EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                            VirtualizingPanel.IsVirtualizingWhenGrouping="True" RowHeight="38" ColumnHeaderHeight="40" FontSize="14">
+                            VirtualizingPanel.IsVirtualizingWhenGrouping="True" RowHeight="38" ColumnHeaderHeight="40" FontSize="14"
+                            BeginningEdit="AffixesGrid_BeginningEdit"
+                            CellEditEnding="AffixesGrid_CellEditEnding">
                     <DataGrid.GroupStyle>
                       <GroupStyle>
                         <GroupStyle.HeaderTemplate>
                           <DataTemplate>
                             <Border BorderBrush="#475569" BorderThickness="0,1,0,1" Padding="10,6" Margin="0,6,0,2">
                               <Border.Style>
+                                <!-- 配色按组类型取 Items[0].GroupStyleKey（档位名 / 污染 / 镶嵌）。
+                                     用 Items[0] 而不是组名 Name：镶嵌组名带上限（镶嵌·最多N条），
+                                     拿 Name 精确匹配永远匹配不上。 -->
                                 <Style TargetType="Border">
-                                  <!-- 普通词条使用中性灰；未知的新档位也安全回退到该配色。 -->
+                                  <!-- 普通与未知档位：中性灰兜底。 -->
                                   <Setter Property="Background" Value="#293241" />
                                   <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Name}" Value="精良">
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="精良">
                                       <Setter Property="Background" Value="#17375E" />
                                       <Setter Property="BorderBrush" Value="#2563EB" />
                                     </DataTrigger>
-                                    <DataTrigger Binding="{Binding Name}" Value="稀有">
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="稀有">
                                       <Setter Property="Background" Value="#493A16" />
                                       <Setter Property="BorderBrush" Value="#D97706" />
                                     </DataTrigger>
-                                    <DataTrigger Binding="{Binding Name}" Value="神话">
-                                      <!-- 沿用游戏的神话红色边框，并提高文字与深色背景的对比度。 -->
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="传说">
+                                      <!-- 传说 = 橙色（与稀有的琥珀、神话的红色区分开）。 -->
+                                      <Setter Property="Background" Value="#4A2A14" />
+                                      <Setter Property="BorderBrush" Value="#EA580C" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="神话">
+                                      <!-- 神话 = 游戏里的红色。 -->
                                       <Setter Property="Background" Value="#4A1D22" />
                                       <Setter Property="BorderBrush" Value="#B32832" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="污染">
+                                      <!-- 污染 = 紫色（与行内紫字呼应）。 -->
+                                      <Setter Property="Background" Value="#331A4D" />
+                                      <Setter Property="BorderBrush" Value="#A855F7" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="镶嵌">
+                                      <!-- 镶嵌 = 品红色系（深品红底 + 品红边框，与污染的紫色系区分开）。 -->
+                                      <Setter Property="Background" Value="#4A0E2E" />
+                                      <Setter Property="BorderBrush" Value="#EC4899" />
                                     </DataTrigger>
                                   </Style.Triggers>
                                 </Style>
@@ -205,14 +279,23 @@
                                   <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="#CBD5E1" />
                                     <Style.Triggers>
-                                      <DataTrigger Binding="{Binding Name}" Value="精良">
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="精良">
                                         <Setter Property="Foreground" Value="#60A5FA" />
                                       </DataTrigger>
-                                      <DataTrigger Binding="{Binding Name}" Value="稀有">
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="稀有">
                                         <Setter Property="Foreground" Value="#FBBF24" />
                                       </DataTrigger>
-                                      <DataTrigger Binding="{Binding Name}" Value="神话">
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="传说">
+                                        <Setter Property="Foreground" Value="#FB923C" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="神话">
                                         <Setter Property="Foreground" Value="#F87171" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="污染">
+                                        <Setter Property="Foreground" Value="#C084FC" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding Items[0].GroupStyleKey}" Value="镶嵌">
+                                        <Setter Property="Foreground" Value="#F9A8D4" />
                                       </DataTrigger>
                                     </Style.Triggers>
                                   </Style>
@@ -224,17 +307,34 @@
                       </GroupStyle>
                     </DataGrid.GroupStyle>
                     <DataGrid.Columns>
+                      <!-- 行内删除：表格上方的「删除选中」已弃用。 -->
+                      <DataGridTemplateColumn Header="" Width="Auto" MinWidth="70">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Button Content="删除" Padding="8,0" Height="26" Margin="2,0"
+                                    Background="#7F1D1D" Click="RemoveAffixRow_Click"
+                                    IsEnabled="{Binding CanRemove}"
+                                    ToolTip="传说/神话/独有档位与装备自带的基础词条不允许删除。" />
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
                       <DataGridTextColumn Header="词条 ID" Binding="{Binding Id}" IsReadOnly="True" Width="Auto" MinWidth="90" />
-                      <DataGridTextColumn Header="词条描述" Binding="{Binding Name}" IsReadOnly="True" Width="Auto" MinWidth="260" MaxWidth="900" />
-                      <DataGridTextColumn Header="类别" Binding="{Binding QualityName}" IsReadOnly="True" Width="Auto" MinWidth="110" />
-                      <DataGridTextColumn Header="等级（可编辑）" Binding="{Binding Level, UpdateSourceTrigger=PropertyChanged}" Width="Auto" MinWidth="130" />
-                      <DataGridTextColumn Header="参考数值范围（不校验）" Binding="{Binding ValueRange}" IsReadOnly="True" Width="Auto" MinWidth="190" />
-                      <DataGridTextColumn Header="数值（留空随机）" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" Width="Auto" MinWidth="150" />
+                      <DataGridTextColumn Header="词条描述" Binding="{Binding DescriptionText}" IsReadOnly="True" Width="Auto" MinWidth="260" MaxWidth="900" />
+                      <DataGridTextColumn Header="类别" Binding="{Binding CategoryText}" IsReadOnly="True" Width="Auto" MinWidth="110" />
+                      <!-- 用普通 DataGridTextColumn + UpdateSourceTrigger=LostFocus：
+                           F2 / 退格 / Del / 直接输入覆盖 这些标准编辑手势由 DataGrid 原生提供，
+                           而修正（取整、夹紧、越界、留空）天然发生在提交（离开单元格/回车）时。 -->
+                      <DataGridTextColumn Header="等级" Binding="{Binding LevelText, UpdateSourceTrigger=LostFocus}" Width="Auto" MinWidth="120" />
+                      <!-- 需求 2.2：档位相关 → 低;中;高；随机 → 下界~上界；固定 → 只显示该值。 -->
+                      <DataGridTextColumn Header="参考数值（不校验）" Binding="{Binding ReferenceText}" IsReadOnly="True" Width="Auto" MinWidth="190" />
+                      <DataGridTextColumn Header="数值" Binding="{Binding ValueText, UpdateSourceTrigger=LostFocus}" Width="Auto" MinWidth="130" />
+                      <!-- 需求 2.3：勾选后把数值写入存档并用哨兵使其生效；未勾选则清除哨兵。 -->
+                      <DataGridCheckBoxColumn Header="强制越界" Binding="{Binding ForceOverflow, UpdateSourceTrigger=PropertyChanged}" Width="Auto" MinWidth="90" />
                     </DataGrid.Columns>
                   </DataGrid>
                 </Grid>
               </Border>
-            </StackPanel>
+            </Grid>
           </ScrollViewer>
           <Button Grid.Row="2" x:Name="EquipmentActionButton" Content="生成装备并加入背包" Click="EquipmentActionButton_Click" Height="46" FontSize="16" />
         </Grid>
@@ -286,7 +386,7 @@
             <TextBox Grid.Column="1" x:Name="InventorySearchText" TextChanged="InventorySearchText_TextChanged"
                      ToolTip="搜索名称、ID 或类别" Margin="18,0,4,0" />
           </Grid>
-          <DataGrid Grid.Row="3" x:Name="InventoryGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single"
+          <DataGrid Grid.Row="3" x:Name="InventoryGrid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended"
                     EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
                     RowHeight="38" ColumnHeaderHeight="40">
             <DataGrid.Columns>
@@ -297,13 +397,14 @@
               <DataGridTextColumn Header="名称" Binding="{Binding Name}" IsReadOnly="True" Width="*" MinWidth="220" />
               <DataGridTextColumn Header="品质" Binding="{Binding Quality}" IsReadOnly="True" Width="80" />
               <DataGridTextColumn Header="等级" Binding="{Binding Level}" IsReadOnly="True" Width="80" />
-              <DataGridTextColumn Header="数量（可编辑）" Binding="{Binding Count, UpdateSourceTrigger=PropertyChanged}" Width="140" />
+              <DataGridTextColumn Header="数量（可编辑）" Binding="{Binding CountText, UpdateSourceTrigger=LostFocus}" Width="140" />
             </DataGrid.Columns>
           </DataGrid>
           <Grid Grid.Row="4" Margin="0,8,0,0">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
             <Button Content="增加选中物品到背包" Click="AddInventoryButton_Click" Height="46" FontSize="16" />
-            <Button Grid.Column="1" Content="应用选中物品数量（0 表示删除）" Click="ApplyInventoryCountButton_Click" Height="46" FontSize="16" />
+            <!-- 直接在表格「数量（可编辑）」列里改一行或多行，一次提交全部改动。 -->
+            <Button Grid.Column="1" Content="应用表格中修改的数量（可一次改多行，0 = 删除）" Click="ApplyInventoryCountButton_Click" Height="46" FontSize="16" />
           </Grid>
         </Grid>
       </TabItem>
@@ -362,9 +463,19 @@
       </TabItem>
 
       <TabItem Header="角色编辑器">
-        <Grid Margin="0,12,0,0">
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <Border Style="{StaticResource Card}">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <!-- 同「装备生成器」：内容 Grid 的最小高度绑到视口高度 → 空间足够时技能表撑满剩余高度，
+               不够时外层滚动条接管（窗口很小也能滚到应用按钮）。 -->
+          <ScrollViewer Grid.Row="0" x:Name="HeroContentScroll" VerticalScrollBarVisibility="Auto"
+                        Margin="0,12,0,0" SizeChanged="ContentScroll_SizeChanged">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+          <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12">
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
@@ -395,9 +506,11 @@
             </Grid>
             <DataGrid Grid.Row="1" x:Name="GrowthGrid" AutoGenerateColumns="False" CanUserAddRows="False" Margin="0,0,0,10">
               <DataGrid.Columns>
-                <DataGridTextColumn Header="属性" Binding="{Binding Name}" IsReadOnly="True" Width="*" />
-                <DataGridTextColumn Header="合法范围" Binding="{Binding ValueRange}" IsReadOnly="True" Width="150" />
-                <DataGridTextColumn Header="每级成长（可编辑）" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="190" />
+                <DataGridTextColumn Header="属性" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
+                <DataGridTextColumn Header="点数范围" Binding="{Binding PointRange}" IsReadOnly="True" Width="150" />
+                <DataGridTextColumn Header="点数（可编辑）" Binding="{Binding Points, UpdateSourceTrigger=PropertyChanged}" Width="150" />
+                <DataGridTextColumn Header="成长范围" Binding="{Binding ValueRange}" IsReadOnly="True" Width="150" />
+                <DataGridTextColumn Header="成长（可编辑）" Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Width="150" />
               </DataGrid.Columns>
             </DataGrid>
             <StackPanel Grid.Row="2">
@@ -405,9 +518,11 @@
               <TextBlock x:Name="ExtraTalentRuleText" Foreground="#94A3B8" Margin="0,4,0,0" TextWrapping="Wrap" />
             </StackPanel>
           </Grid>
-          <DataGrid Grid.Row="2" x:Name="TalentsGrid" AutoGenerateColumns="False" CanUserAddRows="False" MinHeight="300"
-                    EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                    VirtualizingPanel.IsVirtualizingWhenGrouping="True">
+          <!-- 分组 + 行虚拟化会让容器低估内容总高度（表现为：滚动条拉到底仍看不到最后几行）。
+               技能表条目很少，直接关闭行/列虚拟化，换取完整、准确的滚动。
+               高度交给所在的 * 行，表格会撑满剩余空间（最小 240 由行的 MinHeight 保证）。 -->
+          <DataGrid Grid.Row="2" x:Name="TalentsGrid" AutoGenerateColumns="False" CanUserAddRows="False" MinHeight="240"
+                    EnableRowVirtualization="False" EnableColumnVirtualization="False">
             <DataGrid.GroupStyle>
               <GroupStyle>
                 <GroupStyle.HeaderTemplate>
@@ -466,7 +581,9 @@
               <DataGridTextColumn Header="等级（可编辑）" Binding="{Binding Level, UpdateSourceTrigger=PropertyChanged}" Width="Auto" MinWidth="140" />
             </DataGrid.Columns>
           </DataGrid>
-          <Button Grid.Row="3" Content="应用角色、每级属性成长和技能树修改" Click="ApplyHeroButton_Click" Height="46" FontSize="16" Margin="4,12,4,4" />
+            </Grid>
+          </ScrollViewer>
+          <Button Grid.Row="1" Content="应用角色、每级属性成长和技能树修改" Click="ApplyHeroButton_Click" Height="46" FontSize="16" Margin="4,12,4,4" />
         </Grid>
       </TabItem>
     </TabControl>
