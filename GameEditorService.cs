@@ -2045,7 +2045,7 @@ internal static class GameEditorService
         }
         if (growthByType.Count != growthRules.Count)
             throw new InvalidOperationException("属性行不完整，请刷新游戏数据后重试。");
-        // 分组校验：生命+魔力（base）与力+敏+智（main）各自的点数、成长总和必须等于品质规定的总量。
+        // 分组校验：生命+魔力（main）与力+敏+智（base）各自的点数、成长总和必须等于品质规定的总量。
         var basePointSum = 0f;
         var mainPointSum = 0f;
         var baseGrowSum = 0f;
@@ -2068,13 +2068,13 @@ internal static class GameEditorService
         var requiredBaseGrow = hero.tHeroQualityData?.baseAttrGrow ?? 0;
         var requiredMainGrow = hero.tHeroQualityData?.mainAttrGrow ?? 0;
         if (Math.Abs(basePointSum - requiredBasePoint) > 0.0001f)
-            throw new InvalidOperationException($"生命+魔力点数总和必须为 {requiredBasePoint}，当前为 {basePointSum:0.###}。");
+            throw new InvalidOperationException($"生命+魔力点数总和必须为 {requiredMainPoint}，当前为 {mainPointSum:0.###}。");
         if (Math.Abs(mainPointSum - requiredMainPoint) > 0.0001f)
-            throw new InvalidOperationException($"力量+敏捷+智力点数总和必须为 {requiredMainPoint}，当前为 {mainPointSum:0.###}。");
+            throw new InvalidOperationException($"力量+敏捷+智力点数总和必须为 {requiredBasePoint}，当前为 {basePointSum:0.###}。");
         if (Math.Abs(baseGrowSum - requiredBaseGrow) > 0.0001f)
-            throw new InvalidOperationException($"生命+魔力成长总和必须为 {requiredBaseGrow}，当前为 {baseGrowSum:0.###}。");
+            throw new InvalidOperationException($"生命+魔力成长总和必须为 {requiredMainGrow}，当前为 {mainGrowSum:0.###}。");
         if (Math.Abs(mainGrowSum - requiredMainGrow) > 0.0001f)
-            throw new InvalidOperationException($"力量+敏捷+智力成长总和必须为 {requiredMainGrow}，当前为 {mainGrowSum:0.###}。");
+            throw new InvalidOperationException($"力量+敏捷+智力成长总和必须为 {requiredBaseGrow}，当前为 {baseGrowSum:0.###}。");
         // 提交时重新构建技能树规则，不能信任桌面端连接时缓存的等级上限和候选项。
         var currentSlots = BuildTalentSlots(hero);
         var bySlot = new Dictionary<int, TalentSlotEdit>();
@@ -2241,74 +2241,59 @@ internal static class GameEditorService
             TalentSlots = BuildTalentSlots(hero)
         };
         result.GrowthAttributes = CreateGrowthAttributeRules(hero);
-        // ── 临时诊断：确认属性字典的键与 scope 数组的行语义 ──
-        try
-        {
-            var save0 = hero.saveHeroData;
-            var job0 = hero.tHeroJobData;
-            var quality0 = hero.tHeroQualityData;
-            Plugin.Log.LogInfo($"[AttrDiag] hero={save0?.uniqueId} job={save0?.jobId} quality={save0?.quality} level={save0?.level}");
-            Plugin.Log.LogInfo($"[AttrDiag] quality totals: mainTotal={quality0?.mainAttrTotal} mainGrow={quality0?.mainAttrGrow} baseTotal={quality0?.baseAttrTotal} baseGrow={quality0?.baseAttrGrow}");
-            DumpDict("[AttrDiag] mainAttrDic", save0?.mainAttrDic);
-            DumpDict("[AttrDiag] mainAttrUpDic", save0?.mainAttrUpDic);
-            DumpDict("[AttrDiag] baseAttrDic", save0?.baseAttrDic);
-            DumpDict("[AttrDiag] baseAttrUpDic", save0?.baseAttrUpDic);
-            DumpScope("[AttrDiag] mainScope", job0?.mainScopeArr);
-            DumpScope("[AttrDiag] baseScope", job0?.baseScopeArr);
-        }
-        catch (Exception exception)
-        {
-            Plugin.Log.LogWarning($"[AttrDiag] 失败：{exception.Message}");
-        }
-        foreach (var pair in save.talentDic)
-        {
-            if (pair.Value?.isAlien == true) result.AlienSkillCount++;
-            if (pair.Value?.isInspired == true) result.InspiredTalentCount++;
-        }
         return result;
     }
+
     private static List<GrowthAttributeEdit> CreateGrowthAttributeRules(HeroData hero)
     {
-        // 目标：生命 / 魔力 / 力量 / 敏捷 / 智力 五行，每行给出「点数范围、当前点数、成长范围、当前成长」。
-        //   生命、魔力 = baseAttrDic / baseAttrUpDic，规则取 baseScopeArr + baseAttrTotal / baseAttrGrow
-        //   力、敏、智 = mainAttrDic / mainAttrUpDic，规则取 mainScopeArr + mainAttrTotal / mainAttrGrow
+        // 五行：生命 / 魔力 / 力量 / 敏捷 / 智力。
+        // 实测映射（AttrDiag 已确认）：生命/魔力 → mainAttrDic + mainScopeArr（行 0/1）+ mainAttrTotal/mainAttrGrow；
+        //                       力/敏/智 → baseAttrDic + baseScopeArr（行 0/1/2）+ baseAttrTotal/baseAttrGrow。
         var result = new List<GrowthAttributeEdit>();
         var save = hero.saveHeroData;
         if (save == null)
             return result;
-        var baseScope = hero.tHeroJobData?.baseScopeArr;
         var mainScope = hero.tHeroJobData?.mainScopeArr;
-        var basePointTotal = hero.tHeroQualityData?.baseAttrTotal ?? 0;
-        var baseGrowTotal = hero.tHeroQualityData?.baseAttrGrow ?? 0;
+        var baseScope = hero.tHeroJobData?.baseScopeArr;
         var mainPointTotal = hero.tHeroQualityData?.mainAttrTotal ?? 0;
         var mainGrowTotal = hero.tHeroQualityData?.mainAttrGrow ?? 0;
-        AddGrowthRow(result, EAttrType.hp, "base", baseScope, save.baseAttrDic, save.baseAttrUpDic,
-            basePointTotal, baseGrowTotal, 0);
-        AddGrowthRow(result, EAttrType.mp, "base", baseScope, save.baseAttrDic, save.baseAttrUpDic,
-            basePointTotal, baseGrowTotal, 1);
-        AddGrowthRow(result, EAttrType.STR, "main", mainScope, save.mainAttrDic, save.mainAttrUpDic,
-            mainPointTotal, mainGrowTotal, 0);
-        AddGrowthRow(result, EAttrType.DEX, "main", mainScope, save.mainAttrDic, save.mainAttrUpDic,
-            mainPointTotal, mainGrowTotal, 1);
-        AddGrowthRow(result, EAttrType.INT, "main", mainScope, save.mainAttrDic, save.mainAttrUpDic,
-            mainPointTotal, mainGrowTotal, 2);
+        var basePointTotal = hero.tHeroQualityData?.baseAttrTotal ?? 0;
+        var baseGrowTotal = hero.tHeroQualityData?.baseAttrGrow ?? 0;
+        AddGrowthRow(result, EAttrType.hp, "main", mainScope, save.mainAttrDic, save.mainAttrUpDic, mainPointTotal, mainGrowTotal, 0);
+        AddGrowthRow(result, EAttrType.mp, "main", mainScope, save.mainAttrDic, save.mainAttrUpDic, mainPointTotal, mainGrowTotal, 1);
+        AddGrowthRow(result, EAttrType.STR, "base", baseScope, save.baseAttrDic, save.baseAttrUpDic, basePointTotal, baseGrowTotal, 0);
+        AddGrowthRow(result, EAttrType.DEX, "base", baseScope, save.baseAttrDic, save.baseAttrUpDic, basePointTotal, baseGrowTotal, 1);
+        AddGrowthRow(result, EAttrType.INT, "base", baseScope, save.baseAttrDic, save.baseAttrUpDic, basePointTotal, baseGrowTotal, 2);
         return result;
     }
-    // 生成一行：点数范围 / 点数 / 成长范围 / 成长
+
     private static void AddGrowthRow(List<GrowthAttributeEdit> target, EAttrType type, string group,
         Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase? scope, Il2CppSystem.Collections.Generic.Dictionary<EAttrType, float>? pointDic,
         Il2CppSystem.Collections.Generic.Dictionary<EAttrType, float>? growDic,
         int pointTotal, int growTotal, int positionalRow)
     {
-        var row = ResolveScopeRow(scope, type, positionalRow);
         var pointMin = 0;
         var pointMax = 0;
-        if (scope != null && row >= 0)
-            DataTool.GetConstrainedIntRangeInScopeArrPartition(scope, pointTotal, row, out pointMin, out pointMax);
         var growMin = 0;
         var growMax = 0;
-        if (scope != null && row >= 0)
-            DataTool.GetConstrainedIntRangeInScopeArrPartition(scope, growTotal, row, out growMin, out growMax);
+
+        // 行号按组内顺序：生命/魔力 0-1，力/敏/智 0-2；先读 scope 行数，越界时跳过原生计算（避免原生索引越界）。
+        var rows = GetScopeRowCount(scope);
+        var row = positionalRow;
+        if (scope != null && row >= 0 && row < rows)
+        {
+            try
+            {
+                DataTool.GetConstrainedIntRangeInScopeArrPartition(scope, pointTotal, row, out pointMin, out pointMax);
+                DataTool.GetConstrainedIntRangeInScopeArrPartition(scope, growTotal, row, out growMin, out growMax);
+            }
+            catch (Exception exception)
+            {
+                pointMin = pointMax = growMin = growMax = 0;
+                Plugin.Log.LogWarning($"[GrowthRow] {GetAttributeName(type)} 范围计算失败（rows={rows}, row={row}）：{exception.Message}");
+            }
+        }
+
         target.Add(new GrowthAttributeEdit
         {
             Type = (int)type,
@@ -2322,54 +2307,22 @@ internal static class GameEditorService
             MaximumValue = growMax
         });
     }
-    // scope 的行索引语义有两种可能（按 EAttrType 值 / 按组内顺序），这里按表长度择一。
-    private static int ResolveScopeRow(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase? scope, EAttrType type, int positionalRow)
+    // scope 是 int[,]/float[,] 之类的多维数组，用 System.Array 接口安全取行数。
+    private static int GetScopeRowCount(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase? scope)
     {
         if (scope == null)
-            return -1;
+            return 0;
         try
         {
             var array = scope.TryCast<Il2CppSystem.Array>();
-            if (array == null)
-                return positionalRow;
-            var rows = array.GetLength(0);
-            var index = (int)type;
-            // 行数足够大（≥ EAttrType 数量级）时按枚举值取行，否则按组内顺序
-            return rows > 12 && index < rows ? index : positionalRow;
+            return array?.GetLength(0) ?? 0;
         }
         catch
         {
-            return positionalRow;
+            return 0;
         }
     }
-    private static void DumpDict(string tag, Il2CppSystem.Collections.Generic.Dictionary<EAttrType, float>? dict)
-    {
-        if (dict == null) { Plugin.Log.LogInfo($"{tag} = null"); return; }
-        var sb = new System.Text.StringBuilder();
-        foreach (var pair in dict)
-            sb.Append($"{(int)pair.Key}:{pair.Key}={pair.Value:0.###} ");
-        Plugin.Log.LogInfo($"{tag} count={dict.Count} {sb}");
-    }
-    private static void DumpScope(string tag, Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase? scope)
-    {
-        if (scope == null) { Plugin.Log.LogInfo($"{tag} = null"); return; }
-        var array = scope.TryCast<Il2CppSystem.Array>();
-        if (array == null) { Plugin.Log.LogInfo($"{tag} 不是 System.Array"); return; }
-        var rows = array.GetLength(0);
-        var cols = array.GetLength(1);
-        var sb = new System.Text.StringBuilder();
-        for (var r = 0; r < Math.Min(rows, 14); r++)
-        {
-            sb.Append('[');
-            for (var c = 0; c < cols; c++)
-            {
-                var value = array.GetValue(r, c)?.ToString() ?? "?";
-                sb.Append(c == 0 ? value : "," + value);
-            }
-            sb.Append("] ");
-        }
-        Plugin.Log.LogInfo($"{tag} rows={rows} cols={cols} {sb}");
-    }
+
     private static List<TalentSlotEdit> BuildTalentSlots(HeroData hero)
     {
         var result = new List<TalentSlotEdit>();
@@ -3867,6 +3820,8 @@ internal static class GameEditorService
         save.mainAttrDic != null && save.mainAttrDic.ContainsKey(type) ? save.mainAttrDic[type] : 0;
     private static string GetAttributeName(EAttrType type) => type switch
     {
+        EAttrType.hp => "生命",
+        EAttrType.mp => "魔力",
         EAttrType.STR => "力量",
         EAttrType.DEX => "敏捷",
         EAttrType.INT => "智力",

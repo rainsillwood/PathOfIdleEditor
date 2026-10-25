@@ -1150,8 +1150,8 @@ public partial class MainWindow : Window
         var mainGrowTotal = hero.GrowthAttributes.Where(x => x.Group == "main").Sum(x => x.Value);
         GrowthRuleText.Text =
             $"可直接编辑且不消耗血肉结晶；范围取自当前职业、品级的游戏规则。" +
-            $"点数：生命+魔力 {basePointTotal:0.###} / 力量+敏捷+智力 {mainPointTotal:0.###}；" +
-            $"成长：生命+魔力 {baseGrowTotal:0.###} / 力量+敏捷+智力 {mainGrowTotal:0.###}。";
+            $"点数：生命+魔力 {mainPointTotal:0.###} / 力量+敏捷+智力 {basePointTotal:0.###}；" +
+            $"成长：生命+魔力 {mainGrowTotal:0.###} / 力量+敏捷+智力 {baseGrowTotal:0.###}。";
         ExtraTalentRuleText.Text = $"异化技能 {hero.AlienSkillCount}/{hero.MaximumAlienSkills}，启迪天赋 {hero.InspiredTalentCount}/{hero.MaximumInspiredTalents}；现有项目可直接修改技能或天赋及其等级。";
         SetStatus($"已选择“{hero.Name}”；角色合法等级为 1-{hero.MaximumLevel}。", true);
     }
