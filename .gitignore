@@ -37,3 +37,7 @@ deploy/
 /docs
 /decompile
 /.workbuddy
+
+# Local-only subproject: kept in the solution so it builds together,
+# but never tracked/pushed by this repository (it has its own repo).
+/PathOfIdleTweaks/
