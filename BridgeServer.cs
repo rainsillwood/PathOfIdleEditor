@@ -129,6 +129,16 @@ internal static class BridgeServer
         {
             Plugin.Log.LogWarning($"[TemplateReport] 导出监牢扭曲表失败：{exception.Message}");
         }
+        try
+        {
+            var path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "PathOfIdleEditor-tstele.tsv");
+            var rows = GameEditorService.WriteTSteleStageDump(path);
+            Plugin.Log.LogInfo($"[TemplateReport] 圣碑阶段表已导出：{path}（TSteleStage {rows} 行）");
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.LogWarning($"[TemplateReport] 导出圣碑阶段表失败：{exception.Message}");
+        }
     }
 
     private static EditorResponse HandleSnapshot()

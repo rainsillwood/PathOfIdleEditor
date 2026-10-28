@@ -3148,6 +3148,28 @@ internal static class GameEditorService
         System.IO.File.WriteAllText(path, builder.ToString());
         return rows;
     }
+    // 圣碑阶段表（感知/封印等级的经验表）：TSteleStage.maxCodexAwar = 「升到该阶段等级所需的感知经验」。
+    // 原生感知升级时按 TSteleStageData[当前等级 + 1].maxCodexAwar 取阈值；一旦等级超过该表最高 id，
+    // 封印将不再加经验（GameAssembly.c:2202209 查表 / 2243437 SaveItemData__AddAwareness 升级）。
+    // 单独导出便于离线核对「感知经验表」与后续设计上限修改。
+    internal static int WriteTSteleStageDump(string path)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("#TSteleStage\tid\tname\tmaxCodexAwar\tmaxSkillLike\tdes");
+        var rows = 0;
+        foreach (var pair in TSteleStage.create())
+        {
+            var stage = pair.Value;
+            if (stage == null)
+                continue;
+            rows++;
+            var stageName = string.IsNullOrEmpty(stage.name) ? $"阶段 {pair.Key}" : stage.name;
+            var description = stage.des ?? "";
+            builder.AppendLine($"TSteleStage\t{pair.Key}\t{stageName}\t{stage.maxCodexAwar}\t{stage.maxSkillLike}\t{description}");
+        }
+        System.IO.File.WriteAllText(path, builder.ToString());
+        return rows;
+    }
     // 监牢扭曲相关表：每次扭曲的血肉价格 = THeroLevel.distortPrice × THeroQuality.distortPriceRate（再打折），
     // 升品成功率 = THeroQuality.distortQualityUpRate（再加成）。单独导出便于离线算期望。
     internal static int WriteDistortTableDump(string path)
